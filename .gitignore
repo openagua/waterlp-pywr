@@ -1,0 +1,6 @@
+build/
+model/__pycache__/
+model/logs/
+*.wpr
+*.wpu
+.idea/
