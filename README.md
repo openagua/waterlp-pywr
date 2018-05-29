@@ -35,7 +35,9 @@ OpenAgua is a web-based application to facilitate interacting with water system 
 
 ## Specific modeling logic
 
-[refer to doc in development w/ SFPUC]
+To the extent possible, specific modeling logic is not included in this generalized code, but rather entered into the Hydra database via the OpenAgua GUI.
+
+That modeling logic is described in a [separate Google Doc](https://docs.google.com/document/d/19qTpzT-JEKpwmsF28UgYSVeF0gQW1batZOGd7pwBsF8/edit?usp=sharing)
 
 ## Interaction with other modules
 
