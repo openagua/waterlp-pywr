@@ -290,8 +290,6 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
 
     m.StorageBounds = Constraint(m.Storage, m.TS, rule=StorageBounds_rule)
 
-    # Groundwater logic
-
     # OBJECTIVE FUNCTION
 
     def Objective_fn(m):
