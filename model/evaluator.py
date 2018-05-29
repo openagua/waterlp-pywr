@@ -158,22 +158,28 @@ def parse_function(s, name, modules=()):
 
 def make_dates(settings, date_format=None):
     # TODO: Make this more advanced - this should be pulled out into a different library available to all
-    timestep = settings.get('timestep')
-    start = pendulum.parse(settings.get('start'))
-    end = pendulum.parse(settings.get('end'))
 
-    if timestep in ['day', 'week', 'month']:
-        period = pendulum.period(start, end)
-        dates = period.range("{}s".format(timestep))
+    timestep = settings.get('time_step') or settings.get('timestep')
+    start = settings.get('start_time') or settings.get('start')
+    end = settings.get('end_time') or settings.get('end')
 
-    elif timestep == 'thricemonthly':
-        period = pendulum.period(start, end)
-        dates = []
-        for dt in period.range('months'):
-            d1 = pendulum.create(dt.year, dt.month, 10)
-            d2 = pendulum.create(dt.year, dt.month, 20)
-            d3 = dt.last_of('month')
-            dates.extend([d1, d2, d3])
+    dates = []
+    if start and end:
+        start = pendulum.parse(start)
+        end = pendulum.parse(end)
+
+        if timestep in ['day', 'week', 'month']:
+            period = pendulum.period(start, end)
+            dates = period.range("{}s".format(timestep))
+
+        elif timestep == 'thricemonthly':
+            period = pendulum.period(start, end)
+            dates = []
+            for dt in period.range('months'):
+                d1 = pendulum.create(dt.year, dt.month, 10)
+                d2 = pendulum.create(dt.year, dt.month, 20)
+                d3 = dt.last_of('month')
+                dates.extend([d1, d2, d3])
 
     if date_format is None:
         dates_as_string = [date.to_datetime_string() for date in dates]
@@ -211,7 +217,6 @@ class Evaluator:
         self.conn = conn
         self.date_format = date_format
         self.dates_as_string, self.dates = make_dates(settings, date_format=date_format)
-        # self.current_dates = None
         self.scenario_id = scenario_id
         self.data_type = data_type
         self.default_timeseries = make_default_value('timeseries', self.dates_as_string, flavor='dict',
@@ -262,6 +267,9 @@ class Evaluator:
 
         elif data_type == 'array':
             returncode, errormsg, result = eval_array(value.value)
+
+        elif data_type == 'descriptor':
+            returncode, errormsg, result = eval_descriptor(value.value)
 
         if do_eval:
             return returncode, errormsg, result
@@ -323,7 +331,7 @@ class Evaluator:
                     elif flavor == 'pandas':
                         result = pd.DataFrame.from_records(data=values, index=dates_idx, columns=cols)
                     elif flavor == 'dict':
-                        result = {c: {d: v for d, v in zip(dates_idx, values)} for c in cols}
+                        result = {c: {d: v[c] for d, v in zip(dates_idx, values)} for c in cols}
                 else:
                     if flavor is None:
                         result = pd.DataFrame(data=values, index=dates_idx).to_json(date_format='iso')

@@ -1,5 +1,5 @@
-from pyomo.environ import AbstractModel, Set, Objective, Var, Param, Constraint, Reals, NonNegativeReals, maximize, \
-    summation
+from pyomo.environ import AbstractModel, Set, Objective, Var, Param, Constraint, Reals, NonNegativeReals, minimize, \
+    maximize, summation
 
 
 # create the model
@@ -28,50 +28,46 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     # sets (nodes or links) for each template type
     {setattr(m, k, Set(within=m.Nodes, initialize=v)) for k, v in types['node'].items()}
     {setattr(m, k, Set(within=m.Links, initialize=v)) for k, v in types['link'].items()}
-    # for k, v in types['network'].items():
-    # exec('m.{} = Set(within=m.Network, initialize={})'.format(k, v))
 
     # sets for non-storage nodes
     m.Storage = m.Reservoir | m.Groundwater  # union
     m.NonStorage = m.Nodes - m.Storage  # difference
     m.DemandNodes = m.GeneralDemand | m.UrbanDemand  # we should eliminate differences
+    m.NonJunction = m.Nodes - m.Junction
+
+    # sets for links with channel capacity
+    m.ConstrainedLink = m.Conveyance | m.DeliveryLink | m.Pipeline | m.Tunnel
+
+    def nodeBlockLookup(i):
+        return blocks['node'].get(i, [(0, 0)])
+
+    def linkBlockLookup(i, j):
+        return blocks['link'].get((i, j), [(0, 0)])
 
     # set - all blocks in each demand or reservoir node, and identify node-blocks
-    def NodeBlockLookup_init(m, i):
-        if i in blocks['node']:
-            return blocks['node'][i]
-        else:
-            return [0]
+    def nodeBlockLookup_init(m):
+        for i in m.NonJunction:
+            return nodeBlockLookup(i)
 
-    m.NodeBlockLookup = Set(m.DemandNodes | m.Storage, initialize=NodeBlockLookup_init)
+    m.NodeBlockLookup = Set(dimen=2, initialize=nodeBlockLookup_init)
 
     # set - all blocks in each link
-    def LinkBlockLookup_init(m, i, j):
-        if (i, j) in blocks['link']:
-            return blocks['link'][(i, j)]
-        else:
-            return [0]
+    def linkBlockLookup_init(m):
+        for (i, j) in m.Links:
+            return linkBlockLookup(i, j)
 
-    m.LinkBlockLookup = Set(m.Links, initialize=LinkBlockLookup_init)
+    m.LinkBlockLookup = Set(dimen=2, initialize=linkBlockLookup_init)
 
     # create node-block and link-block sets
 
     def NodeBlock(m):
-        blocks = []
-        for i in m.Nodes:
-            for b in NodeBlockLookup_init(m, i):
-                blocks.append((i, b))
-        return blocks
+        return [(j, b, sb) for j in m.Nodes for (b, sb) in nodeBlockLookup(j)]
 
     def LinkBlock(m):
-        blocks = []
-        for i, j in m.Links:
-            for b in LinkBlockLookup_init(m, i, j):
-                blocks.append((i, j, b))
-        return blocks
+        return [(i, j, b, sb) for i, j in m.Links for (b, sb) in linkBlockLookup(i, j)]
 
-    m.NodeBlocks = Set(dimen=2, initialize=NodeBlock)
-    m.LinkBlocks = Set(dimen=3, initialize=LinkBlock)
+    m.NodeBlocks = Set(dimen=3, initialize=NodeBlock)
+    m.LinkBlocks = Set(dimen=4, initialize=LinkBlock)
 
     # DECISION VARIABLES (all variables should be prepended with resource type)
 
@@ -81,13 +77,15 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     m.linkDeliveryDB = Var(m.LinkBlocks * m.TS, domain=NonNegativeReals)
     m.nodeStorage = Var(m.Storage * m.TS, domain=NonNegativeReals)  # storage
 
+    # m.nodeDemandDeficit = Var(m.NodeBlocks * m.TS, domain=NonNegativeReals, initialize=0.0)
+
     # m.nodeStorageDB = Var(m.Storage)
     # m.nodeFulfillmentDB = Var(m.NodeBlocks * m.TS, domain=NonNegativeReals) # Percent of delivery fulfilled (i.e., 1 - % shortage)
 
     m.nodeGain = Var(m.Nodes * m.TS, domain=Reals)  # gain (local inflows; can be net positive or negative)
-    # if debug:
-    m.debugGain = Var(m.Nodes * m.TS, domain=NonNegativeReals)
-    m.debugLoss = Var(m.Nodes * m.TS, domain=NonNegativeReals)
+    if debug:
+        m.debugGain = Var(m.Nodes * m.TS, domain=NonNegativeReals)
+        m.debugLoss = Var(m.Nodes * m.TS, domain=NonNegativeReals)
     m.nodeLoss = Var(m.Nodes * m.TS, domain=Reals)  # loss (local outflow; can be net positive or negative)
     m.nodeInflow = Var(m.Nodes * m.TS, domain=NonNegativeReals)  # total inflow to a node
     m.nodeOutflow = Var(m.Nodes * m.TS, domain=NonNegativeReals)  # total outflow from a node
@@ -99,14 +97,16 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     m.nodeSpill = Var(m.Reservoir * m.TS, domain=NonNegativeReals)  # uncontrolled/undesired release to a river
     # m.emptyStorage = Var(m.Reservoir * m.TS, domain=NonNegativeReals) # empty storage space
 
-    m.ConstrainedLink = m.Conveyance | m.DeliveryLink | m.Pipeline | m.Tunnel
+    # variables to prevent infeasibilities
+    m.virtualPrecipGain = Var(m.Reservoir * m.TS, domain=NonNegativeReals)  # allow reservoir to make up for excess evap
+    m.groundwaterLoss = Var(m.Groundwater * m.TS, domain=NonNegativeReals)  # added to allow groundwater to overflow
 
     # PARAMETERS
 
-    # TODO: replace this with explicit declarations, since this is opaque
-    for param_name, param in params.items():
+    # TODO: replace this with explicit declarations
+    for param in params.values():
         if param['is_var'] == 'N':
-            initial_values = param.get('initial_values')
+            initial_values = param.get('initial_values')  # initial values is used in expression execution
             expression = param.get('expression')
             if expression:
                 exec(expression)
@@ -143,11 +143,12 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
 
     def LocalLoss_rule(m, j, t):
         if j in m.Reservoir:
-            loss = m.nodeNetEvaporation[j, t]
+            # excess evap should not cause infeasibility, so (expensive) virtualPrecepGain is subtracted from net evap
+            loss = m.nodeNetEvaporation[j, t] - m.virtualPrecipGain[j, t]
         elif j in m.DemandNodes:
             loss = m.nodeLocalLoss[j, t] + m.nodeDelivery[j, t] * m.nodeConsumptiveLoss[j, t] / 100
         elif j in m.Groundwater:
-            loss = m.nodeLocalLoss[j, t] + m.debugLoss[j, t]
+            loss = m.nodeLocalLoss[j, t] + m.groundwaterLoss[j, t]  # groundwater can disappear from the system
         else:
             loss = m.nodeLocalLoss[j, t]
         if debug:
@@ -178,7 +179,7 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     def NodeDelivery_definition(m, j, t):
         '''Deliveries comprise delivery blocks'''
         if j in m.Storage | m.DemandNodes | m.FlowRequirement:
-            return m.nodeDelivery[j, t] == sum(m.nodeDeliveryDB[j, b, t] for b in m.NodeBlockLookup[j])
+            return m.nodeDelivery[j, t] == sum(m.nodeDeliveryDB[j, b, sb, t] for (b, sb) in nodeBlockLookup(j))
         else:
             return Constraint.Skip
 
@@ -193,6 +194,7 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
             # deliveries to demand nodes (urban, ag, general) must equal actual inflows
             # note the use of local gains & losses: local sources such as precipitation can be included in deliveries
             # TODO: make this more sophisticated to account for more specific gains and losses (basically, everything except consumptive losses; this might be left to the user to add precip, etc. as part of a local gain function)
+            # in the following, the assumption is that any water going to a demand node is accounted for as a delivery
             return m.nodeDelivery[j, t] == m.nodeInflow[j, t] + m.nodeLocalGain[j, t] - m.nodeLocalLoss[j, t]
         else:
             # delivery cannot exceed sum of inflows
@@ -201,13 +203,18 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
 
     m.NodeDelivery_rule = Constraint(m.Nodes, m.TS, rule=NodeDelivery_rule)
 
-    def NodeBlock_rule(m, j, b, t):
+    def NodeBlock_rule(m, j, b, sb, t):
         '''Delivery blocks cannot exceed their corresponding demand blocks.
         By extension, deliveries cannot exceed demands.
         '''
-        return m.nodeDeliveryDB[j, b, t] <= m.nodeDemand[j, b, t]
+        return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeDemand[j, b, sb, t]
 
     m.NodeBlock_constraint = Constraint(m.NodeBlocks, m.TS, rule=NodeBlock_rule)
+
+    # def DemandDeficit_rule(m, j, b, t):
+    # '''Demand deficit definition'''
+    # return m.nodeDemandDeficit[j, b, t] == m.nodeDemand[j, b, t] - m.nodeDeliveryDB[j, b, t]
+    # m.NodeDemandDeficit_constraint = Constraint(m.NodeBlocks, m.TS, rule=DemandDeficit_rule)
 
     # def LinkBlock_rule(m, i, j, b, t):
     # '''Link flow blocks cannot exceed their corresponding demand blocks.'''
@@ -218,8 +225,8 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
 
     def LinkMassBalance_rule(m, i, j, t):
         '''Define the relationship between link inflow and link outflow.'''
-        # TODO: implement link losses and gains here.
-        return m.linkOutflow[i, j, t] == m.linkInflow[i, j, t]
+        # TODO: make this more sophisticated, with loss to groundwater
+        return m.linkOutflow[i, j, t] == m.linkInflow[i, j, t] * (1 - m.linkLossFromSystem[i, j, t] / 100)
 
     m.LinkMassBalance_constraint = Constraint(m.Links, m.TS, rule=LinkMassBalance_rule)
 
@@ -258,7 +265,8 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     m.MaximumOutflow = Constraint(m.Reservoir, m.TS, rule=MaxReservoirRelease_rule)
 
     # def EmptyStorage_definition(m, j, t):
-    # return m.emptyStorage[j,t] == m.nodeStorageCapacity[j] - m.nodeStorage[j,t]
+    #     return m.emptyStorage[j, t] == m.nodeStorageCapacity[j, t] - m.nodeStorage[j, t]
+    #
     # m.EmptyStorageDefinition = Constraint(m.Reservoir, m.TS, rule=EmptyStorage_definition)
 
     # channel capacity
@@ -274,9 +282,9 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     # storage capacity
     def StorageBounds_rule(m, j, t):
         if j in m.Reservoir:
-            return (m.nodeInactivePool[j], m.nodeStorage[j, t], m.nodeStorageCapacity[j])
+            return (m.nodeInactivePool[j, t], m.nodeStorage[j, t], m.nodeStorageCapacity[j, t])
         elif j in m.Groundwater:
-            return (0, m.nodeStorage[j, t], m.nodeStorageCapacity[j])
+            return (0, m.nodeStorage[j, t], m.nodeStorageCapacity[j, t])
         else:
             return None
 
@@ -289,10 +297,15 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     def Objective_fn(m):
         # Link demand / value not yet implemented
         if debug:
-            return summation(m.nodeValueDB, m.nodeDeliveryDB) - 1000 * summation(m.debugGain) - 1000 * summation(
-                m.debugLoss)
+            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
+                   - 1000 * summation(m.virtualPrecipGain) \
+                   - 1000 * summation(m.debugGain) \
+                   - 1000 * summation(m.debugLoss)
         else:
-            return summation(m.nodeValueDB, m.nodeDeliveryDB)
+            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
+                   - 1000 * summation(m.virtualPrecipGain)
+
+        # return sum((m.nodeValueDB[j,b,t] * m.nodeDeliveryDB[j,b,t]) for (j, b) in m.NodeBlocks for t in m.TS)
 
     m.Objective = Objective(rule=Objective_fn, sense=maximize)
 

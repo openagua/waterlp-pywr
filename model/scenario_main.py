@@ -92,20 +92,14 @@ def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, repo
     system.update_internal_params()
 
     optimizer = SolverFactory(args.solver)
-    # logd.info('Model created.')
-    # logd.info('Starting model run.')
 
     total_steps = len(system.dates)
 
-    failed = False
-
     runs = range(system.nruns)
-
-    # last_year = arrow.get(system.timesteps[0]).year
+    n = len(runs)
 
     i = 0
-    while i < len(runs):
-        # for i, ts in enumerate(runs):
+    while i < n:
 
         ts = runs[i]
         current_step = i + 1
@@ -192,9 +186,6 @@ def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, repo
             system.instance.preprocess()
 
         else:
-
-            if verbose:
-                print('saving results')
             system.save_results()
             reporter and reporter.report(action='done')
 

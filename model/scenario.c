@@ -3,12 +3,12 @@
 /* BEGIN: Cython Metadata
 {
     "distutils": {
-        "name": "scenario",
+        "name": "model.scenario",
         "sources": [
             "/home/david/waterlp-sf/model/scenario.pyx"
         ]
     },
-    "module_name": "scenario"
+    "module_name": "model.scenario"
 }
 END: Cython Metadata */
 
@@ -530,8 +530,8 @@ static CYTHON_INLINE float __PYX_NAN() {
   #endif
 #endif
 
-#define __PYX_HAVE__scenario
-#define __PYX_HAVE_API__scenario
+#define __PYX_HAVE__model__scenario
+#define __PYX_HAVE_API__model__scenario
 #ifdef _OPENMP
 #include <omp.h>
 #endif /* _OPENMP */
@@ -735,7 +735,7 @@ static const char *__pyx_filename;
 
 
 static const char *__pyx_f[] = {
-  "model/scenario.pyx",
+  "scenario.pyx",
 };
 
 /*--- Type declarations ---*/
@@ -916,12 +916,12 @@ static int __Pyx_check_binary_version(void);
 static int __Pyx_InitStrings(__Pyx_StringTabEntry *t);
 
 
-/* Module declarations from 'scenario' */
-#define __Pyx_MODULE_NAME "scenario"
-extern int __pyx_module_is_main_scenario;
-int __pyx_module_is_main_scenario = 0;
+/* Module declarations from 'model.scenario' */
+#define __Pyx_MODULE_NAME "model.scenario"
+extern int __pyx_module_is_main_model__scenario;
+int __pyx_module_is_main_model__scenario = 0;
 
-/* Implementation of 'scenario' */
+/* Implementation of 'model.scenario' */
 static const char __pyx_k_main[] = "__main__";
 static const char __pyx_k_test[] = "__test__";
 static const char __pyx_k_import[] = "__import__";
@@ -1117,14 +1117,14 @@ static int __pyx_pymod_exec_scenario(PyObject *__pyx_pyinit_module)
   #if PY_MAJOR_VERSION < 3 && (__PYX_DEFAULT_STRING_ENCODING_IS_ASCII || __PYX_DEFAULT_STRING_ENCODING_IS_DEFAULT)
   if (__Pyx_init_sys_getdefaultencoding_params() < 0) __PYX_ERR(0, 1, __pyx_L1_error)
   #endif
-  if (__pyx_module_is_main_scenario) {
+  if (__pyx_module_is_main_model__scenario) {
     if (PyObject_SetAttrString(__pyx_m, "__name__", __pyx_n_s_main) < 0) __PYX_ERR(0, 1, __pyx_L1_error)
   }
   #if PY_MAJOR_VERSION >= 3
   {
     PyObject *modules = PyImport_GetModuleDict(); if (unlikely(!modules)) __PYX_ERR(0, 1, __pyx_L1_error)
-    if (!PyDict_GetItemString(modules, "scenario")) {
-      if (unlikely(PyDict_SetItemString(modules, "scenario", __pyx_m) < 0)) __PYX_ERR(0, 1, __pyx_L1_error)
+    if (!PyDict_GetItemString(modules, "model.scenario")) {
+      if (unlikely(PyDict_SetItemString(modules, "model.scenario", __pyx_m) < 0)) __PYX_ERR(0, 1, __pyx_L1_error)
     }
   }
   #endif
@@ -1144,7 +1144,7 @@ static int __pyx_pymod_exec_scenario(PyObject *__pyx_pyinit_module)
   if (__Pyx_patch_abc() < 0) __PYX_ERR(0, 1, __pyx_L1_error)
   #endif
 
-  /* "scenario.pyx":1
+  /* "model/scenario.pyx":1
  * from scenario_main import run_scenario             # <<<<<<<<<<<<<<
  */
   __pyx_t_1 = PyList_New(1); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 1, __pyx_L1_error)
@@ -1173,11 +1173,11 @@ static int __pyx_pymod_exec_scenario(PyObject *__pyx_pyinit_module)
   __Pyx_XDECREF(__pyx_t_2);
   if (__pyx_m) {
     if (__pyx_d) {
-      __Pyx_AddTraceback("init scenario", 0, __pyx_lineno, __pyx_filename);
+      __Pyx_AddTraceback("init model.scenario", 0, __pyx_lineno, __pyx_filename);
     }
     Py_DECREF(__pyx_m); __pyx_m = 0;
   } else if (!PyErr_Occurred()) {
-    PyErr_SetString(PyExc_ImportError, "init scenario");
+    PyErr_SetString(PyExc_ImportError, "init model.scenario");
   }
   __pyx_L0:;
   __Pyx_RefNannyFinishContext();
