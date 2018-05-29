@@ -18,6 +18,8 @@ from utils import create_subscenarios
 
 from copy import copy
 
+from scenario_main import run_scenario
+
 
 def run_scenarios(args, log):
     """
@@ -31,12 +33,11 @@ def run_scenarios(args, log):
     # from scenario_debug import run_scenario
     print('')
     if args.debug:
-        from scenario_debug import run_scenario
+        # from scenario_debug import run_scenario
         print("DEBUG ON")
     else:
         # scenario is the Cythonized version of scenario_main
         print("DEBUG OFF")
-        from scenario import run_scenario
 
     args.starttime = datetime.now()  # args.start_time is iso-formatted, but this is still probably redundant
 
@@ -56,8 +57,8 @@ def run_scenarios(args, log):
     # ====================================
 
     # create a dictionary of network attributes
-    all_scenarios = conn.call('get_network', {'network_id': conn.network.id, 'include_data': 'N', 'summary': 'N',
-                                              'include_resources': 'N'})
+    network = conn.call('get_network', {'network_id': conn.network.id, 'include_data': 'N', 'summary': 'N',
+                                        'include_resources': 'N'})
     template_attributes = conn.call('get_template_attributes', {'template_id': conn.template.id})
     attrs = {ta.id: {'name': ta.name} for ta in template_attributes}
 
@@ -65,12 +66,11 @@ def run_scenarios(args, log):
     base_system = WaterSystem(
         conn=conn,
         name=args.app_name,
-        all_scenarios=all_scenarios,
+        all_scenarios=network.scenarios,
         network=conn.network,
         template=conn.template,
         attrs=attrs,
         date_format=args.hydra_timestep_format,
-        settings=conn.network.layout.get('settings'),
         args=args,
     )
 
@@ -91,7 +91,7 @@ def run_scenarios(args, log):
         except:
             scenario_ids = [scenario_ids]
 
-            # create the scenario class
+        # create the scenario class
         scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
 
         start_payload = scenario.update_payload(action='start')
@@ -108,6 +108,7 @@ def run_scenarios(args, log):
             # prepare the system
             system = copy(base_system)
             system.scenario = scenario
+            system.initialize_time_steps()
             system.collect_source_data()
 
             # organize the subscenarios
@@ -143,30 +144,32 @@ def run_scenarios(args, log):
 
             post_reporter.report(action="error", message=message)
 
+            raise
+
     # =======================
     # multiprocessing routine
     # =======================
 
-    p = partial(run_scenario, conn=conn, args=args, verbose=verbose)
+    if args.debug:
+        run_scenario(all_supersubscenarios[0], conn=conn, args=args)
+        return
+    else:
+        p = partial(run_scenario, conn=conn, args=args, verbose=verbose)
 
-    # set multiprocessing parameters
-    poolsize = mp.cpu_count()
-    maxtasks = None
-    chunksize = 1
+        # set multiprocessing parameters
+        poolsize = mp.cpu_count()
+        maxtasks = None
+        chunksize = 1
+        pool = mp.Pool(processes=poolsize, maxtasksperchild=maxtasks)
 
-    pool = mp.Pool(processes=poolsize, maxtasksperchild=maxtasks)
+        msg = 'Running {} subscenarios in multicore mode with {} workers, {} chunks each.' \
+            .format(system.scenario.subscenario_count, poolsize, chunksize)
+        print(msg)
 
-    msg = 'Running {} subscenarios in multicore mode with {} workers, {} chunks each.' \
-        .format(system.scenario.subscenario_count, poolsize, chunksize)
-    print(msg)
-    # log.info()
-    pool.imap(p, all_supersubscenarios, chunksize=chunksize)
-
-    # stop the pool
-    pool.close()
-    pool.join()
-    return
-    # run_scenario(all_supersubscenarios[0], conn=conn, args=args)
+        pool.imap(p, all_supersubscenarios, chunksize=chunksize)
+        pool.close()
+        pool.join()
+        return
 
 
 def commandline_parser():
@@ -206,8 +209,7 @@ def commandline_parser():
                         help='''The main log file directory.''')
     parser.add_argument('--sol', dest='solver', default='glpk',
                         help='''The solver to use (e.g., glpk, gurobi, etc.).''')
-    # parser.add_argument('--fs', dest='foresight',
-    # help='''Foresight: 'perfect' or 'imperfect' ''')
+    parser.add_argument('--fs', dest='foresight', default='zero', help='''Foresight: 'perfect' or 'imperfect' ''')
     parser.add_argument('--purl', dest='post_url',
                         help='''URL to ping indicating activity.''')
     parser.add_argument('--mp', dest='message_protocol', default=None,
