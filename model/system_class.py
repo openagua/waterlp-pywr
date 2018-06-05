@@ -337,7 +337,6 @@ class WaterSystem(object):
                         do_eval=False,
                         flavor='dict',
                         fill_value=0,
-                        res_attr_id=rs.resource_attr_id
                     )
                 except Exception as e:
                     raise
@@ -646,9 +645,10 @@ class WaterSystem(object):
         for idx in self.instance.nodePriority:
             getattr(self.instance, 'nodeValueDB')[idx] = \
                 lowval - (getattr(self.instance, 'nodePriority')[idx].value or lowval)
-        for idx in self.instance.linkPriority:
-            getattr(self.instance, 'linkValueDB')[idx] = \
-                lowval - (getattr(self.instance, 'linkPriority')[idx].value or lowval)
+        if hasattr(self.instance, 'linkPriority'):
+            for idx in self.instance.linkPriority:
+                getattr(self.instance, 'linkValueDB')[idx] = \
+                    lowval - (getattr(self.instance, 'linkPriority')[idx].value or lowval)
 
     def collect_results(self, timesteps, tsidx, include_all=False, write_input=True):
 

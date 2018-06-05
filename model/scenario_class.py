@@ -20,6 +20,10 @@ class Scenario(object):
         self.total_steps = 1
         self.finished = 0
 
+        self.start_time = '0'
+        self.end_time = '9'
+        self.time_step = ''
+
         # look for existing option-scenario combination
         source_names = []
         self.tags = []
@@ -44,6 +48,10 @@ class Scenario(object):
 
             this_chain = [source.id]
 
+            self.start_time = max(self.start_time, source.get('start_time'))
+            self.end_time = min(self.end_time, source.get('end_time'))
+            self.time_step = self.time_step or source.get('time_step')
+
             # TODO: pull this chaining info from list of scenarios rather than hitting Hydra Platform multiple times
             while source['layout'].get('parent'):
                 parent_id = source['layout']['parent']
@@ -54,6 +62,9 @@ class Scenario(object):
                 else:
                     source = conn.call('get_scenario', {'scenario_id': parent_id})
                 self.source_scenarios[source.id] = source
+                self.start_time = max(self.start_time, source.get('start_time'))
+                self.end_time = min(self.end_time, source.get('end_time'))
+                self.time_step = self.time_step or source.get('time_step')
             this_chain.reverse()
             self.source_ids.extend(this_chain)
 

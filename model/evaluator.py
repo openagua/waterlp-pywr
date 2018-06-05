@@ -61,15 +61,33 @@ def get_scenario_data(evaluator, **kwargs):
 
 
 def empty_data_timeseries(dates, date_format='iso', flavor='json'):
-    values = [None] * len(dates)
-    if flavor == 'json':
-        if date_format == 'iso':
-            timeseries = pd.DataFrame({'0': values}, index=dates).to_json(date_format='iso')
-        elif date_format == 'original':
-            timeseries = pd.DataFrame({'0': values}, index=dates, parse_dates=False)
-    elif flavor == 'dict':
-        timeseries = pd.DataFrame({0: values}, index=dates).to_dict()
-    return timeseries
+    try:
+        values = [None] * len(dates)
+        if flavor == 'json':
+            if date_format == 'iso':
+                timeseries = pd.DataFrame({'0': values}, index=dates).to_json(date_format='iso')
+            elif date_format == 'original':
+                timeseries = pd.DataFrame({'0': values}, index=dates, parse_dates=False)
+        elif flavor == 'dict':
+            timeseries = pd.DataFrame({0: values}, index=dates).to_dict()
+        return timeseries
+    except:
+        raise
+
+
+def empty_data_timeseries(dates, nblocks=1, flavor='json'):
+    try:
+        values = [[None] * nblocks] * len(dates)
+        timeseries = pd.DataFrame(values, columns=range(nblocks), index=dates)
+        if flavor == 'json':
+            timeseries = timeseries.to_json(date_format='iso')
+        elif flavor == 'dict':
+            timeseries = timeseries.to_dict()
+        elif flavor == 'pandas':
+            pass
+        return timeseries
+    except:
+        raise
 
 
 def eval_scalar(x):
@@ -100,27 +118,30 @@ def eval_descriptor(s):
     return returncode, errormsg, result
 
 
-def eval_timeseries(timeseries, dates, date_format, fill_value=None, method=None, flavor=None):
-    df = pd.read_json(timeseries)
-    if df.empty:
-        df = pd.DataFrame(index=dates, columns=['0'])
-    else:
-        # df = df.reindex(pd.DatetimeIndex(dates))
-        if fill_value is not None:
-            df.fillna(value=fill_value, inplace=True)
-        elif method:
-            df.fillna(method=method)
+def eval_timeseries(timeseries, dates, date_format=None, fill_value=None, method=None, flavor=None):
+    try:
+        df = pd.read_json(timeseries)
+        if df.empty:
+            df = pd.DataFrame(index=dates, columns=['0'])
+        else:
+            # df = df.reindex(pd.DatetimeIndex(dates))
+            if fill_value is not None:
+                df.fillna(value=fill_value, inplace=True)
+            elif method:
+                df.fillna(method=method)
 
-    if flavor is None or flavor == 'json':
-        result = df.to_json(date_format=date_format)
-    elif flavor == 'dict':
-        df.index = df.index.strftime(date_format)
-        result = df.to_dict()
+        if flavor is None or flavor == 'json':
+            result = df.to_json(date_format=date_format)
+        elif flavor == 'dict':
+            df.index = df.index.strftime(date_format)
+            result = df.to_dict()
 
-    returncode = 0
-    errormsg = 'No errors!'
+        returncode = 0
+        errormsg = 'No errors!'
 
-    return returncode, errormsg, result
+        return returncode, errormsg, result
+    except:
+        raise
 
 
 def eval_array(array):
@@ -135,12 +156,15 @@ def eval_array(array):
     return returncode, errormsg, array
 
 
-def parse_function(s, name, modules=()):
+def parse_function(s, name, argnames, modules=()):
     '''Parse a function into usable Python'''
     spaces = '\n    '
 
     # modules
     modules = spaces.join(modules)
+
+    # getargs (these pass to self.GET)
+    kwargs = spaces.join(['{arg} = kwargs.get("{arg}")'.format(arg=arg) for arg in argnames])
 
     # first cut
     s = s.rstrip()
@@ -150,48 +174,54 @@ def parse_function(s, name, modules=()):
     code = spaces.join(lines)
 
     # final function
-    func = '''def {name}(self, date, timestep, counter):{spaces}{modules}{spaces}{spaces}{code}''' \
-        .format(spaces=spaces, modules=modules, code=code, name=name)
+    func = '''def {name}(self, **kwargs):{spaces}{modules}{spaces}{kwargs}{spaces}{code}''' \
+        .format(spaces=spaces, modules=modules, kwargs=kwargs, code=code, name=name)
 
     return func
 
 
-def make_dates(settings, date_format=None):
-    # TODO: Make this more advanced - this should be pulled out into a different library available to all
-
+def make_dates(settings, date_format=True, data_type='timeseries'):
+    # TODO: Make this more advanced
     timestep = settings.get('time_step') or settings.get('timestep')
     start = settings.get('start_time') or settings.get('start')
     end = settings.get('end_time') or settings.get('end')
 
     dates = []
+
     if start and end:
-        start = pendulum.parse(start)
-        end = pendulum.parse(end)
+        period = pendulum.period(pendulum.parse(start), pendulum.parse(end))
 
         if timestep in ['day', 'week', 'month']:
-            period = pendulum.period(start, end)
             dates = period.range("{}s".format(timestep))
-
         elif timestep == 'thricemonthly':
-            period = pendulum.period(start, end)
             dates = []
+            start = pendulum.parse(start)
+            end = pendulum.parse(end)
+            period = pendulum.period(start, end)
             for dt in period.range('months'):
                 d1 = pendulum.create(dt.year, dt.month, 10)
                 d2 = pendulum.create(dt.year, dt.month, 20)
                 d3 = dt.last_of('month')
                 dates.extend([d1, d2, d3])
 
-    if date_format is None:
+        if data_type == 'periodic timeseries':
+            dates = [dt.replace(year=9999) for dt in dates if (dt - dates[0]).years == 0]
+
         dates_as_string = [date.to_datetime_string() for date in dates]
+
+        return dates_as_string, dates
+
     else:
-        dates_as_string = [date.strftime(date_format) for date in dates]
-
-    return dates_as_string, dates
+        return None, None
 
 
-def make_default_value(data_type, dates=None, flavor='json', date_format='iso'):
+def make_default_value(data_type='timeseries', dates=None, nblocks=1):
     if data_type == 'timeseries':
-        default_eval_value = empty_data_timeseries(dates, flavor=flavor, date_format=date_format)
+        default_eval_value = empty_data_timeseries(dates, nblocks=nblocks)
+    elif data_type == 'periodic timeseries':
+        dates = [pendulum.parse(d) for d in dates]
+        periodic_dates = [d.replace(year=9999).to_datetime_string() for d in dates if (d - dates[0]).in_years() < 1]
+        default_eval_value = empty_data_timeseries(periodic_dates, nblocks=nblocks)
     elif data_type == 'array':
         default_eval_value = '[[],[]]'
     else:
@@ -212,71 +242,81 @@ class InnerSyntaxError(SyntaxError):
         self.message = message
 
 
+class namespace:
+    pass
+
+
 class Evaluator:
-    def __init__(self, conn=None, scenario_id=None, settings=None, date_format=None, data_type=None):
+    def __init__(self, conn=None, scenario_id=None, settings=None, date_format=None, data_type='timeseries', nblocks=1):
         self.conn = conn
-        self.date_format = date_format
-        self.dates_as_string, self.dates = make_dates(settings, date_format=date_format)
+        self.dates_as_string, self.dates = make_dates(settings, data_type=data_type)
         self.scenario_id = scenario_id
         self.data_type = data_type
-        self.default_timeseries = make_default_value('timeseries', self.dates_as_string, flavor='dict',
-                                                     date_format='original')
+        self.date_format = date_format
+        self.default_timeseries = make_default_value(data_type=data_type, dates=self.dates_as_string, nblocks=nblocks)
         self.default_array = make_default_value('array')
+
+        self.namespace = namespace
+
+        self.argnames = ['counter', 'timestep', 'date']  # arguments accepted by the function evaluator
 
         self.calculators = {}
 
         self.data = {}
         # This stores data that can be referenced later, in both time and space. The main purpose is to minimize repeated calls to data sources, especially when referencing other networks/resources/attributes within the project. While this needs to be recreated on every new evaluation or run, within each evaluation or run this can store as much as possible for reuse.
 
-    def eval_data(self, value, func=None, do_eval=False, data_type=None, flavor=None, counter=0, fill_value=None,
-                  res_attr_id=None):
-        # create the data depending on data type
+    def eval_data(self, value, func=None, do_eval=False, data_type=None, flavor=None, counter=0, fill_value=None):
 
-        returncode = None
-        errormsg = None
-        result = None
+        try:
+            # create the data depending on data type
 
-        # metadata = json.loads(resource_scenario.value.metadata)
-        metadata = json.loads(value.metadata)
-        if func is None:
-            func = metadata.get('function')
-        usefn = metadata.get('use_function', 'N')
-        # if value is None:
-        #     value = value.value
-        data_type = value.type
+            returncode = None
+            errormsg = None
+            result = None
 
-        if usefn == 'Y':
-            func = func if type(func) == str else ''
-            try:
-                returncode, errormsg, result = self.eval_function(func, flavor=flavor, counter=counter, uid=value['id'],
-                                                                  res_attr_id=res_attr_id)
-            except InnerSyntaxError:
-                raise
-            except Exception as e:
-                print(e)
-            if data_type == 'timeseries' and result is None:
-                result = self.default_timeseries
+            # metadata = json.loads(resource_scenario.value.metadata)
+            metadata = json.loads(value.metadata)
+            if func is None:
+                func = metadata.get('function')
+            usefn = metadata.get('use_function', 'N')
+            # if value is None:
+            #     value = value.value
+            data_type = value.type
 
-        elif data_type == 'scalar':
-            returncode, errormsg, result = eval_scalar(value.value)
+            if usefn == 'Y':
+                func = func if type(func) == str else ''
+                try:
+                    returncode, errormsg, result = self.eval_function(func, flavor=flavor, counter=counter)
+                except InnerSyntaxError:
+                    raise
+                except Exception as e:
+                    print(e)
+                if data_type == 'timeseries' and result is None:
+                    result = self.default_timeseries
 
-        elif data_type == 'timeseries':
+            elif data_type == 'scalar':
+                returncode, errormsg, result = eval_scalar(value.value)
 
-            returncode, errormsg, result = eval_timeseries(value.value, self.dates_as_string, self.date_format,
-                                                           fill_value=fill_value, flavor=flavor)
+            elif data_type == 'timeseries':
 
-        elif data_type == 'array':
-            returncode, errormsg, result = eval_array(value.value)
+                returncode, errormsg, result = eval_timeseries(value.value, self.dates_as_string,
+                                                               date_format=self.date_format,
+                                                               fill_value=fill_value, flavor=flavor)
 
-        elif data_type == 'descriptor':
-            returncode, errormsg, result = eval_descriptor(value.value)
+            elif data_type == 'array':
+                returncode, errormsg, result = eval_array(value.value)
 
-        if do_eval:
-            return returncode, errormsg, result
-        else:
-            return result
+            elif data_type == 'descriptor':
+                returncode, errormsg, result = eval_descriptor(value.value)
 
-    def eval_function(self, code_string, counter=None, flavor=None, uid=None, res_attr_id=None):
+            if do_eval:
+                return returncode, errormsg, result
+            else:
+                return result
+        except:
+            raise
+
+    def eval_function(self, code_string, counter=None, flavor=None):
 
         # assume there will be an exception:
         err_class = None
@@ -290,53 +330,49 @@ class Evaluator:
 
         # check if we already know about this function so we don't
         # have to do duplicate (possibly expensive) execs
-        if key not in myfuncs:
+        # if key not in self.myfuncs:
+        if not hasattr(self.namespace, key):
             try:
                 # create the string defining the wrapper function
                 # Note: functions can't start with a number so pre-pend "func_"
                 func_name = "func_{}".format(key)
-                func = parse_function(code_string, name=func_name)
+                func = parse_function(code_string, name=func_name, argnames=self.argnames)
                 # TODO : exec is unsafe
                 exec(func, globals())
-                exception = False
-                myfuncs[key] = func_name
+                # self.myfuncs[key] = func_name
+                setattr(self.namespace, key, eval(func_name))
+            except Exception as e:
+                print(e)
             except SyntaxError as err:  # syntax error
-                line_number = err.lineno - 2
-                res_attr_id = res_attr_id
-                resource_name = self.conn.raid_to_res_name.get(res_attr_id, "unknown")
-                errormsg = "Syntax error at line {}. (Resource: {})".format(err.lineno - 1, resource_name)
-                raise InnerSyntaxError(expression=code_string, message=errormsg)
-            except InnerSyntaxError:
-                raise
-            except Exception:
-                raise
+                err_class = err.__class__.__name__
+                detail = err.args[0]
+                line_number = err.lineno
 
         try:
             # CORE EVALUATION ROUTINE
             values = []
-            # dates = self.current_dates[self.tsi: self.tsf] # or self.dates_as_string
-            for date in self.dates[self.tsi:self.tsf]:
-                timestep = self.tsi + 1
-                value = globals()[myfuncs[key]](self, date=date, timestep=timestep, counter=counter + 1)
+            for timestep, date in enumerate(self.dates[self.tsi:self.tsf]):
+                # value = self.myfuncs[key](self, date, counter=counter + 1)
+                value = getattr(self.namespace, key)(self, date=date, timestep=timestep + 1, counter=counter + 1)
                 values.append(value)
                 if self.data_type != 'timeseries':
                     break
-            if self.data_type == 'timeseries':
+            if self.data_type == 'timeseries' or self.data_type == 'periodic timeseries':
                 dates_idx = self.dates_as_string[self.tsi:self.tsf]
                 if type(values[0]) in (list, tuple):
                     cols = range(len(values[0]))
                     if flavor is None:
-                        result = pd.DataFrame.from_records(data=values, index=dates_idx, columns=cols).to_json(
-                            date_format='iso')
+                        result = pd.DataFrame.from_records(data=values, index=self.dates_as_string,
+                                                           columns=cols).to_json(date_format='iso')
                     elif flavor == 'pandas':
-                        result = pd.DataFrame.from_records(data=values, index=dates_idx, columns=cols)
+                        result = pd.DataFrame.from_records(data=values, index=self.dates_as_string, columns=cols)
                     elif flavor == 'dict':
                         result = {c: {d: v[c] for d, v in zip(dates_idx, values)} for c in cols}
                 else:
                     if flavor is None:
-                        result = pd.DataFrame(data=values, index=dates_idx).to_json(date_format='iso')
+                        result = pd.DataFrame(data=values, index=self.dates_as_string).to_json(date_format='iso')
                     elif flavor == 'pandas':
-                        result = pd.DataFrame(data=values, index=dates_idx)
+                        result = pd.DataFrame(data=values, index=self.dates_as_string)
                     elif flavor == 'dict':
                         result = {0: {d: v for d, v in zip(dates_idx, values)}}
             else:
@@ -346,7 +382,6 @@ class Evaluator:
             detail = err.args[0]
             cl, exc, tb = sys.exc_info()
             line_number = traceback.extract_tb(tb)[-1][1]
-            raise err
         else:
             exception = False  # no exceptions
 
@@ -355,38 +390,38 @@ class Evaluator:
             line_number -= 2
             errormsg = "%s at line %d: %s" % (err_class, line_number, detail)
             result = None
-            raise SyntaxError(errormsg)
         else:
             returncode = 0
             errormsg = ''
 
         return returncode, errormsg, result
 
-    def DATA(self, net_id, ref_key, ref_id, attr_id, date, counter):
+    def GET(self, key, **kwargs):
         '''This sets self.data from self.calculate. It is only used if a function contains self.DATA, which is added by a preprocessor'''
 
-        key = (net_id, ref_key, ref_id, attr_id)
+        date = kwargs.get('date')
+        counter = kwargs.get('counter')
+
+        parts = key.split('/')
+        ref_key, ref_id, attr_id = parts
 
         if key not in self.data:
             resource_scenario = self.conn.get_res_attr_data(
-                ref_key=ref_key,
-                ref_id=ref_id,
+                ref_key=ref_key.upper(),
+                ref_id=int(ref_id),
                 scenario_id=[self.scenario_id],
-                attr_id=attr_id
+                attr_id=int(attr_id)
             )[0]
-            try:
-                eval_data = self.eval_data(
-                    value=resource_scenario.value,
-                    do_eval=False,
-                    flavor='pandas',
-                    counter=counter
-                )
-            except:
-                raise
+            eval_data = self.eval_data(
+                value=resource_scenario.value,
+                do_eval=False,
+                flavor='pandas',
+                counter=counter
+            )
             self.data[key] = eval_data
 
         if self.data_type == 'timeseries':
-            result = self.data[key].loc[date][0]
+            result = self.data[key].loc[date.to_datetime_string()]
         else:
             result = self.data[key]
 
