@@ -84,11 +84,14 @@ def addsubblocks(values, param_name, subblocks):
 
     if param_name == 'nodeDemand':
         new_vals = {}
-        for block in values:
-            for d, v in values[block].items():
-                new_vals[d] = v / nsubblocks
-            for i, subblock in enumerate(subblocks):
-                new_values[(block, subblock)] = new_vals
+        try:
+            for block in values:
+                for d, v in values[block].items():
+                    new_vals[d] = v / nsubblocks
+                for i, subblock in enumerate(subblocks):
+                    new_values[(block, subblock)] = new_vals
+        except:
+            raise
 
     elif param_name == 'nodePriority':
         for i, subblock in enumerate(subblocks):
@@ -103,7 +106,7 @@ def addsubblocks(values, param_name, subblocks):
 
 class WaterSystem(object):
 
-    def __init__(self, conn, name, network, all_scenarios, template, attrs, args, settings=None, date_format=None,
+    def __init__(self, conn, name, network, all_scenarios, template, attrs, args, settings=None, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
         self.VOLUMETRIC_FLOW_RATE_CONST = 0.0864  # 60*60*24/1e6
@@ -272,10 +275,12 @@ class WaterSystem(object):
         self.results = {}
         self.res_scens = {}
 
+        self.evaluator.block_params = self.block_params
+
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
 
-        nsubblocks = 10
+        nsubblocks = 1
         self.default_subblocks = list(range(nsubblocks))
 
         # collect source data
@@ -337,6 +342,8 @@ class WaterSystem(object):
                         do_eval=False,
                         flavor='dict',
                         fill_value=0,
+                        has_blocks=has_blocks,
+                        date_format=self.date_format
                     )
                 except Exception as e:
                     raise
@@ -567,75 +574,91 @@ class WaterSystem(object):
 
         for param_name, param in self.timeseries.items():
             for idx, p in param.items():
-                is_function = p.get('is_function')
-                dimension = p.get('dimension')
 
-                rt = self.params[param_name]['resource_type']
-                startup_date = self.variables.get('{}StartupDate'.format(rt), {}).get(idx, '')
+                try:
 
-                if is_function:
-                    self.evaluator.data_type = p['data_type']
-                    self.evaluator.tsi = tsi
-                    self.evaluator.tsf = tsf
-                    try:
-                        returncode, errormsg, values = self.evaluator.eval_function(p['function'], flavor='dict',
-                                                                                    counter=0)
-                    except:
-                        raise
+                    is_function = p.get('is_function')
+                    dimension = p.get('dimension')
+                    has_blocks = p.get('has_blocks', False)
 
-                    # update missing blocks, if any
-                    # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
-                    if p.get('has_blocks'):
-                        values = addsubblocks(values, param_name, self.default_subblocks)
+                    rt = self.params[param_name]['resource_type']
+                    startup_date = self.variables.get('{}StartupDate'.format(rt), {}).get(idx, '')
 
-                else:
-                    # subblocks have already been added when reading in the time series
-                    values = p['values']
+                    if is_function:
+                        self.evaluator.data_type = p['data_type']
+                        self.evaluator.tsi = tsi
+                        self.evaluator.tsf = tsf
+                        try:
+                            fn = p.get('function')
+                            rc, errormsg, values = self.evaluator.eval_function(fn, flavor='dict', counter=0,
+                                                                                has_blocks=has_blocks)
+                        except:
+                            raise
 
-                if not values:
-                    continue
+                        # update missing blocks, if any
+                        # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
+                        if has_blocks:
+                            values = addsubblocks(values, param_name, self.default_subblocks)
 
-                for j, c in enumerate(values.keys()):
+                    else:
+                        # subblocks have already been added when reading in the time series
+                        values = p['values']
 
-                    # update values variable
-                    for i, datetime in enumerate(dates_as_string):
+                    if not values:
+                        continue
 
-                        if datetime not in values[c]:
-                            continue
+                    if has_blocks:
+                        cols = values.keys()
+                    else:
+                        cols = [0]
+                    for j, c in enumerate(cols):
 
-                        # set value of anything with a start date to zero
-                        # note that this works to compare ISO-formatted strings, so no pendulum date needed
-                        # TODO: make this more sophisticated
-                        if datetime < startup_date:
-                            val = 0
-
+                        if has_blocks:
+                            vals = values[c]
                         else:
-                            val = values[c][datetime]
+                            vals = values
 
-                        # if is_function:
-                        # TODO: use generic unit converter here (and move to evaluator)
-                        if dimension == 'Volumetric flow rate':
-                            val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
+                        # update values variable
+                        for i, datetime in enumerate(dates_as_string):
 
-                        # create key
-                        key = list(idx) + [i] if type(idx) == tuple else [idx, i]
-                        if p.get('has_blocks'):
-                            # add block & subblock to key
-                            key.insert(-1, c[0])
-                            key.insert(-1, c[1])
-                        key = tuple(key)
+                            if datetime not in vals:
+                                continue
 
-                        if initialize:
-                            if param_name not in self.variables:
-                                self.variables[param_name] = {}
-                            self.variables[param_name][key] = val
+                            # set value of anything with a start date to zero
+                            # note that this works to compare ISO-formatted strings, so no pendulum date needed
+                            # TODO: make this more sophisticated
+                            if datetime < startup_date:
+                                val = 0
 
-                        else:  # just update the parameter directly
-                            try:
-                                # TODO: replace this with explicit updates
-                                getattr(self.instance, param_name)[key] = val
-                            except:
-                                pass  # likely the variable simply doesn't exist in the model
+                            else:
+                                val = vals[datetime]
+
+                            # if is_function:
+                            # TODO: use generic unit converter here (and move to evaluator)
+                            if dimension == 'Volumetric flow rate':
+                                val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
+
+                            # create key
+                            key = list(idx) + [i] if type(idx) == tuple else [idx, i]
+                            if has_blocks:
+                                # add block & subblock to key
+                                key.insert(-1, c[0])
+                                key.insert(-1, c[1])
+                            key = tuple(key)
+
+                            if initialize:
+                                if param_name not in self.variables:
+                                    self.variables[param_name] = {}
+                                self.variables[param_name][key] = val
+
+                            else:  # just update the parameter directly
+                                try:
+                                    # TODO: replace this with explicit updates
+                                    getattr(self.instance, param_name)[key] = val
+                                except:
+                                    pass  # likely the variable simply doesn't exist in the model
+                except:
+                    raise
 
     def update_internal_params(self):
         '''Update internal parameters based on calculated variables'''

@@ -37,6 +37,7 @@ class Scenario(object):
 
         self.scenario_ids = scenario_ids
         self.unique_id = args.unique_id + '-' + '-'.join(str(s_id) for s_id in scenario_ids)
+        self.time_step = ''
 
         for i, base_id in enumerate(scenario_ids):
             # if i and source.id in self.source_ids:
@@ -48,10 +49,6 @@ class Scenario(object):
 
             this_chain = [source.id]
 
-            self.start_time = max(self.start_time, source.get('start_time'))
-            self.end_time = min(self.end_time, source.get('end_time'))
-            self.time_step = self.time_step or source.get('time_step')
-
             # TODO: pull this chaining info from list of scenarios rather than hitting Hydra Platform multiple times
             while source['layout'].get('parent'):
                 parent_id = source['layout']['parent']
@@ -61,10 +58,12 @@ class Scenario(object):
                     source = loaded_scenarios[parent_id]
                 else:
                     source = conn.call('get_scenario', {'scenario_id': parent_id})
+
                 self.source_scenarios[source.id] = source
-                self.start_time = max(self.start_time, source.get('start_time'))
-                self.end_time = min(self.end_time, source.get('end_time'))
-                self.time_step = self.time_step or source.get('time_step')
+
+            # source should not have a parent at this point, so this should be for the baseline scenario
+            self.time_step = max(self.time_step, source.get('time_step', ''))
+
             this_chain.reverse()
             self.source_ids.extend(this_chain)
 
@@ -84,6 +83,14 @@ class Scenario(object):
         self.option = self.base_scenarios[0]
         self.scenario = self.base_scenarios[-1]
 
+        # add time step info
+        self.start_time = '0000'
+        self.end_time = '9999'
+
+        for source in self.source_scenarios.values():
+            self.start_time = max(self.start_time, source.get('start_time', '0000'))
+            self.end_time = min(self.end_time, source.get('end_time', '9999'))
+
     def update_payload(self, action=None, **payload):
         payload.update({
             'sid': self.unique_id,
@@ -98,7 +105,11 @@ class Scenario(object):
                 'action': action,
                 'status': statuses.get(action, 'unknown')
             })
-            if action == 'step':
+            if action == 'start':
+                payload.update({
+                    'progress': 0,
+                })
+            elif action == 'step':
                 payload.update({
                     'progress': self.finished / self.total_steps * 100
                 })

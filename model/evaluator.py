@@ -41,7 +41,8 @@ def get_scenario_data(evaluator, **kwargs):
 
         eval_value = evaluator.eval_data(
             value=res_attr_data.value,
-            do_eval=False
+            do_eval=False,
+            date_format=evaluator.date_format
         )
         if eval_value is None:
             eval_value = evaluator.default_timeseries
@@ -60,31 +61,21 @@ def get_scenario_data(evaluator, **kwargs):
     return scenario_data
 
 
-def empty_data_timeseries(dates, date_format='iso', flavor='json'):
+def empty_data_timeseries(dates, nblocks=1, date_format='iso', flavor='json'):
     try:
-        values = [None] * len(dates)
+        values = [0] * len(dates)
+        timeseries = None
         if flavor == 'json':
+            vals = {str(b): values for b in range(nblocks)}
             if date_format == 'iso':
-                timeseries = pd.DataFrame({'0': values}, index=dates).to_json(date_format='iso')
+                timeseries = pd.DataFrame(vals, index=dates).to_json(date_format='iso')
             elif date_format == 'original':
-                timeseries = pd.DataFrame({'0': values}, index=dates, parse_dates=False)
+                timeseries = pd.DataFrame(vals, index=dates)
         elif flavor == 'dict':
-            timeseries = pd.DataFrame({0: values}, index=dates).to_dict()
-        return timeseries
-    except:
-        raise
-
-
-def empty_data_timeseries(dates, nblocks=1, flavor='json'):
-    try:
-        values = [[None] * nblocks] * len(dates)
-        timeseries = pd.DataFrame(values, columns=range(nblocks), index=dates)
-        if flavor == 'json':
-            timeseries = timeseries.to_json(date_format='iso')
-        elif flavor == 'dict':
-            timeseries = timeseries.to_dict()
+            vals = {b: values for b in range(nblocks)}
+            timeseries = pd.DataFrame(vals, index=dates).to_dict()
         elif flavor == 'pandas':
-            pass
+            timeseries = pd.DataFrame(values, columns=range(nblocks), index=dates)
         return timeseries
     except:
         raise
@@ -118,7 +109,7 @@ def eval_descriptor(s):
     return returncode, errormsg, result
 
 
-def eval_timeseries(timeseries, dates, date_format=None, fill_value=None, method=None, flavor=None):
+def eval_timeseries(timeseries, dates, fill_value=None, method=None, flavor=None, date_format='iso'):
     try:
         df = pd.read_json(timeseries)
         if df.empty:
@@ -215,13 +206,14 @@ def make_dates(settings, date_format=True, data_type='timeseries'):
         return None, None
 
 
-def make_default_value(data_type='timeseries', dates=None, nblocks=1):
+def make_default_value(data_type='timeseries', dates=None, nblocks=1, flavor='json', date_format='iso'):
     if data_type == 'timeseries':
-        default_eval_value = empty_data_timeseries(dates, nblocks=nblocks)
+        default_eval_value = empty_data_timeseries(dates, flavor=flavor, date_format=date_format)
     elif data_type == 'periodic timeseries':
         dates = [pendulum.parse(d) for d in dates]
         periodic_dates = [d.replace(year=9999).to_datetime_string() for d in dates if (d - dates[0]).in_years() < 1]
-        default_eval_value = empty_data_timeseries(periodic_dates, nblocks=nblocks)
+        default_eval_value = empty_data_timeseries(periodic_dates, nblocks=nblocks, flavor=flavor,
+                                                   date_format=date_format)
     elif data_type == 'array':
         default_eval_value = '[[],[]]'
     else:
@@ -253,19 +245,25 @@ class Evaluator:
         self.scenario_id = scenario_id
         self.data_type = data_type
         self.date_format = date_format
-        self.default_timeseries = make_default_value(data_type=data_type, dates=self.dates_as_string, nblocks=nblocks)
+        self.default_timeseries = make_default_value('timeseries', self.dates_as_string, flavor='dict',
+                                                     date_format='original')
         self.default_array = make_default_value('array')
 
         self.namespace = namespace
 
-        self.argnames = ['counter', 'timestep', 'date']  # arguments accepted by the function evaluator
+        self.argnames = ['counter', 'timestep', 'date', 'flavor']  # arguments accepted by the function evaluator
 
         self.calculators = {}
 
         self.data = {}
-        # This stores data that can be referenced later, in both time and space. The main purpose is to minimize repeated calls to data sources, especially when referencing other networks/resources/attributes within the project. While this needs to be recreated on every new evaluation or run, within each evaluation or run this can store as much as possible for reuse.
+        # This stores data that can be referenced later, in both time and space.
+        # The main purpose is to minimize repeated calls to data sources, especially
+        # when referencing other networks/resources/attributes within the project.
+        # While this needs to be recreated on every new evaluation or run, within
+        # each evaluation or run this can store as much as possible for reuse.
 
-    def eval_data(self, value, func=None, do_eval=False, data_type=None, flavor=None, counter=0, fill_value=None):
+    def eval_data(self, value, func=None, do_eval=False, data_type=None, flavor=None, counter=0, fill_value=None,
+                  date_format='iso', has_blocks=False):
 
         try:
             # create the data depending on data type
@@ -278,15 +276,16 @@ class Evaluator:
             metadata = json.loads(value.metadata)
             if func is None:
                 func = metadata.get('function')
-            usefn = metadata.get('use_function', 'N')
+            usefn = metadata.get('use_function', 'N') == 'Y'
             # if value is None:
             #     value = value.value
             data_type = value.type
 
-            if usefn == 'Y':
+            if usefn:
                 func = func if type(func) == str else ''
                 try:
-                    returncode, errormsg, result = self.eval_function(func, flavor=flavor, counter=counter)
+                    returncode, errormsg, result = self.eval_function(func, flavor=flavor, counter=counter,
+                                                                      has_blocks=has_blocks)
                 except InnerSyntaxError:
                     raise
                 except Exception as e:
@@ -300,7 +299,7 @@ class Evaluator:
             elif data_type == 'timeseries':
 
                 returncode, errormsg, result = eval_timeseries(value.value, self.dates_as_string,
-                                                               date_format=self.date_format,
+                                                               date_format=date_format,
                                                                fill_value=fill_value, flavor=flavor)
 
             elif data_type == 'array':
@@ -316,7 +315,7 @@ class Evaluator:
         except:
             raise
 
-    def eval_function(self, code_string, counter=None, flavor=None):
+    def eval_function(self, code_string, counter=None, flavor=None, has_blocks=False):
 
         # assume there will be an exception:
         err_class = None
@@ -353,7 +352,8 @@ class Evaluator:
             values = []
             for timestep, date in enumerate(self.dates[self.tsi:self.tsf]):
                 # value = self.myfuncs[key](self, date, counter=counter + 1)
-                value = getattr(self.namespace, key)(self, date=date, timestep=timestep + 1, counter=counter + 1)
+                value = getattr(self.namespace, key)(self, date=date, timestep=timestep + 1, counter=counter + 1,
+                                                     flavor=flavor)
                 values.append(value)
                 if self.data_type != 'timeseries':
                     break
@@ -362,19 +362,25 @@ class Evaluator:
                 if type(values[0]) in (list, tuple):
                     cols = range(len(values[0]))
                     if flavor is None:
-                        result = pd.DataFrame.from_records(data=values, index=self.dates_as_string,
+                        result = pd.DataFrame.from_records(data=values, index=dates_idx,
                                                            columns=cols).to_json(date_format='iso')
                     elif flavor == 'pandas':
-                        result = pd.DataFrame.from_records(data=values, index=self.dates_as_string, columns=cols)
+                        result = pd.DataFrame.from_records(data=values, index=dates_idx, columns=cols)
                     elif flavor == 'dict':
-                        result = {c: {d: v[c] for d, v in zip(dates_idx, values)} for c in cols}
+                        if has_blocks:
+                            result = {c: {d: v[c] for d, v in zip(dates_idx, values)} for c in cols}
+                        else:
+                            result = {d: v[0] for d, v in zip(dates_idx, values)}
                 else:
                     if flavor is None:
-                        result = pd.DataFrame(data=values, index=self.dates_as_string).to_json(date_format='iso')
+                        result = pd.DataFrame(data=values, index=dates_idx).to_json(date_format='iso')
                     elif flavor == 'pandas':
-                        result = pd.DataFrame(data=values, index=self.dates_as_string)
+                        result = pd.DataFrame(data=values, index=dates_idx)
                     elif flavor == 'dict':
-                        result = {0: {d: v for d, v in zip(dates_idx, values)}}
+                        if has_blocks:
+                            result = {0: {d: v for d, v in zip(dates_idx, values)}}
+                        else:
+                            result = {d: v for d, v in zip(dates_idx, values)}
             else:
                 result = values[0]
         except Exception as err:  # other error
@@ -401,9 +407,11 @@ class Evaluator:
 
         date = kwargs.get('date')
         counter = kwargs.get('counter')
+        flavor = kwargs.get('flavor', 'pandas')
 
         parts = key.split('/')
         ref_key, ref_id, attr_id = parts
+        result = None
 
         if key not in self.data:
             resource_scenario = self.conn.get_res_attr_data(
@@ -412,16 +420,31 @@ class Evaluator:
                 scenario_id=[self.scenario_id],
                 attr_id=int(attr_id)
             )[0]
-            eval_data = self.eval_data(
-                value=resource_scenario.value,
-                do_eval=False,
-                flavor='pandas',
-                counter=counter
-            )
+            try:
+                attr = self.conn.attrs[ref_key][resource_scenario['attr_id']]
+                has_blocks = attr['name'] in self.block_params
+                eval_data = self.eval_data(
+                    value=resource_scenario.value,
+                    do_eval=False,
+                    flavor=flavor,
+                    counter=counter,
+                    has_blocks=has_blocks,
+                    date_format='%Y-%m-%d %H:%M:%S'
+                )
+            except:
+                raise
             self.data[key] = eval_data
 
         if self.data_type == 'timeseries':
-            result = self.data[key].loc[date.to_datetime_string()]
+            datetime = date.to_datetime_string()
+            if flavor == 'pandas':
+                result = self.data[key].loc[datetime]
+            elif flavor == 'dict':
+                keys = self.data[key].keys()
+                if datetime in keys:
+                    result = self.data[key][datetime]
+                else:
+                    result = {c: self.data[key][c][datetime] for c in keys}
         else:
             result = self.data[key]
 
