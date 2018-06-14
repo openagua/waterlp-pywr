@@ -132,6 +132,9 @@ class connection(object):
         self.call('login', {'username': username, 'password': password})
         return
 
+    def dump_results(self, resource_scenario):
+        return self.call('update_scenario', {'scen': resource_scenario, 'return_summary': 'Y'})
+
 
 class JSONObject(dict):
     def __init__(self, obj_dict):

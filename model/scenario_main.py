@@ -181,7 +181,7 @@ def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, repo
         if ts != runs[-1]:
             ts_next = runs[i + 1]
             system.update_initial_conditions()
-            system.update_boundary_conditions(ts, ts + system.foresight_periods)
+            system.update_boundary_conditions(ts + 1, ts + 1 + system.foresight_periods)
             system.update_internal_params()  # update internal parameters that depend on user-defined variables
             system.instance.preprocess()
 

@@ -411,41 +411,48 @@ class Evaluator:
 
         parts = key.split('/')
         ref_key, ref_id, attr_id = parts
+        ref_id = int(ref_id)
+        attr_id = int(attr_id)
         result = None
 
-        if key not in self.data:
-            resource_scenario = self.conn.get_res_attr_data(
-                ref_key=ref_key.upper(),
-                ref_id=int(ref_id),
-                scenario_id=[self.scenario_id],
-                attr_id=int(attr_id)
-            )[0]
-            try:
-                attr = self.conn.attrs[ref_key][resource_scenario['attr_id']]
-                has_blocks = attr['name'] in self.block_params
-                eval_data = self.eval_data(
-                    value=resource_scenario.value,
-                    do_eval=False,
-                    flavor=flavor,
-                    counter=counter,
-                    has_blocks=has_blocks,
-                    date_format='%Y-%m-%d %H:%M:%S'
-                )
-            except:
-                raise
-            self.data[key] = eval_data
+        # if key not in self.data:
+        # resource_scenario = self.conn.get_res_attr_data(
+        #     ref_key=ref_key.upper(),
+        #     ref_id=int(ref_id),
+        #     scenario_id=[self.scenario_id],
+        #     attr_id=int(attr_id)
+        # )
 
-        if self.data_type == 'timeseries':
-            datetime = date.to_datetime_string()
-            if flavor == 'pandas':
-                result = self.data[key].loc[datetime]
-            elif flavor == 'dict':
-                keys = self.data[key].keys()
-                if datetime in keys:
-                    result = self.data[key][datetime]
-                else:
-                    result = {c: self.data[key][c][datetime] for c in keys}
-        else:
-            result = self.data[key]
+        rs_value = self.rs_values.get((ref_key, ref_id, attr_id))
 
-        return result
+        try:
+            attr = self.conn.attrs[ref_key][attr_id]
+            has_blocks = attr['name'] in self.block_params
+            eval_data = self.eval_data(
+                value=rs_value,
+                do_eval=False,
+                flavor=flavor,
+                counter=counter,
+                has_blocks=has_blocks,
+                date_format='%Y-%m-%d %H:%M:%S'
+            )
+
+            value = eval_data
+
+            if self.data_type == 'timeseries':
+                datetime = date.to_datetime_string()
+                if flavor == 'pandas':
+                    result = value.loc[datetime]
+                elif flavor == 'dict':
+                    keys = value.keys()
+                    if has_blocks:
+                        result = {c: value[c][datetime] for c in keys}
+                    else:
+                        result = value.get(datetime) or value.get(0, {}).get(datetime)
+            else:
+                result = value
+
+            return result
+
+        except:
+            raise

@@ -276,6 +276,7 @@ class WaterSystem(object):
         self.res_scens = {}
 
         self.evaluator.block_params = self.block_params
+        self.evaluator.rs_values = {}  # to store raw resource attribute values
 
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
@@ -284,6 +285,31 @@ class WaterSystem(object):
         self.default_subblocks = list(range(nsubblocks))
 
         # collect source data
+        for source_id in self.scenario.source_ids:
+
+            self.evaluator.scenario_id = source_id
+
+            source = self.scenario.source_scenarios[source_id]
+
+            for rs in source.resourcescenarios:
+
+                # get identifiers
+                if rs.resource_attr_id in self.ra_node:
+                    resource_type = 'node'
+                    resource_id = self.ra_node[rs.resource_attr_id]
+                    idx = resource_id
+                elif rs.resource_attr_id in self.ra_link:
+                    resource_type = 'link'
+                    resource_id = self.ra_link[rs.resource_attr_id]
+                    idx = self.link_nodes[resource_id]
+                else:
+                    continue  # network attributes don't belong in the model (at least for now)
+                    # resource_type = 'net'
+                    # fid = self.ra_net[rs.resource_attr_id]
+
+                self.evaluator.rs_values[(resource_type, resource_id, rs.attr_id)] = rs.value
+
+
         for source_id in self.scenario.source_ids:
 
             self.evaluator.scenario_id = source_id
@@ -305,10 +331,12 @@ class WaterSystem(object):
                 # get identifiers
                 if rs.resource_attr_id in self.ra_node:
                     resource_type = 'node'
-                    idx = self.ra_node[rs.resource_attr_id]
+                    resource_id = self.ra_node[rs.resource_attr_id]
+                    idx = resource_id
                 elif rs.resource_attr_id in self.ra_link:
                     resource_type = 'link'
-                    idx = self.link_nodes[self.ra_link[rs.resource_attr_id]]
+                    resource_id = self.ra_link[rs.resource_attr_id]
+                    idx = self.link_nodes[resource_id]
                 else:
                     continue  # network attributes don't belong in the model (at least for now)
                     # resource_type = 'net'
@@ -616,7 +644,7 @@ class WaterSystem(object):
                         if has_blocks:
                             vals = values[c]
                         else:
-                            vals = values
+                            vals = values.get(c, values)
 
                         # update values variable
                         for i, datetime in enumerate(dates_as_string):
@@ -845,9 +873,9 @@ class WaterSystem(object):
                     res_scens.append(rs)
                     mb += len(value.encode()) * 1.1 / 1e6  # large factor of safety
 
-                    if mb > 20 or count == nparams:
+                    if mb > 10:
                         result_scenario['resourcescenarios'] = res_scens[:-1]
-                        resp = self.conn.call('update_scenario', {'scen': result_scenario, 'return_summary': 'Y'})
+                        resp = self.conn.dump_results(result_scenario)
                         if count % 10 == 0 or pcount == nparams:
                             if self.scenario.reporter:
                                 self.scenario.reporter.report(
@@ -860,7 +888,7 @@ class WaterSystem(object):
 
             # upload the last remaining resource scenarios
             result_scenario['resourcescenarios'] = res_scens
-            resp = self.conn.call('update_scenario', {'scen': result_scenario, 'return_summary': 'Y'})
+            resp = self.conn.dump_results(result_scenario)
             if self.scenario.reporter:
                 self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
 
