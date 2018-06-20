@@ -3,7 +3,7 @@ from pyomo.environ import AbstractModel, Set, Objective, Var, Param, Constraint,
 
 
 # create the model
-def create_model(name, template, nodes, links, types, ts_idx, params, blocks, debug=False):
+def create_model(name, template, nodes, links, types, ts_idx, params, blocks, debug_gain=False, debug_loss=False):
     m = AbstractModel(name=name)
 
     # SETS
@@ -32,7 +32,7 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     # sets for non-storage nodes
     m.Storage = m.Reservoir | m.Groundwater  # union
     m.NonStorage = m.Nodes - m.Storage  # difference
-    m.DemandNodes = m.GeneralDemand | m.UrbanDemand  # we should eliminate differences
+    m.DemandNodes = m.GeneralDemand | m.UrbanDemand | m.Hydropower | m.FlowRequirement # we should eliminate differences
     m.NonJunction = m.Nodes - m.Junction
 
     # sets for links with channel capacity
@@ -83,8 +83,9 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     # m.nodeFulfillmentDB = Var(m.NodeBlocks * m.TS, domain=NonNegativeReals) # Percent of delivery fulfilled (i.e., 1 - % shortage)
 
     m.nodeGain = Var(m.Nodes * m.TS, domain=Reals)  # gain (local inflows; can be net positive or negative)
-    if debug:
+    if debug_gain:
         m.debugGain = Var(m.Nodes * m.TS, domain=NonNegativeReals)
+    if debug_loss:
         m.debugLoss = Var(m.Nodes * m.TS, domain=NonNegativeReals)
     m.nodeLoss = Var(m.Nodes * m.TS, domain=Reals)  # loss (local outflow; can be net positive or negative)
     m.nodeInflow = Var(m.Nodes * m.TS, domain=NonNegativeReals)  # total inflow to a node
@@ -134,7 +135,7 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
         else:
             '''Other nodes can gain water from local gains'''
             gain = m.nodeLocalGain[j, t]
-        if debug:
+        if debug_gain:
             return m.nodeGain[j, t] == gain + m.debugGain[j, t]
         else:
             return m.nodeGain[j, t] == gain
@@ -151,7 +152,7 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
             loss = m.nodeLocalLoss[j, t] + m.groundwaterLoss[j, t]  # groundwater can disappear from the system
         else:
             loss = m.nodeLocalLoss[j, t]
-        if debug:
+        if debug_loss:
             return m.nodeLoss[j, t] == loss + m.debugLoss[j, t]
         else:
             return m.nodeLoss[j, t] == loss
@@ -294,10 +295,18 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
 
     def Objective_fn(m):
         # Link demand / value not yet implemented
-        if debug:
+        if debug_gain and debug_loss:
             return summation(m.nodeValueDB, m.nodeDeliveryDB) \
                    - 1000 * summation(m.virtualPrecipGain) \
                    - 1000 * summation(m.debugGain) \
+                   - 1000 * summation(m.debugLoss)
+        elif debug_gain:
+            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
+                   - 1000 * summation(m.virtualPrecipGain) \
+                   - 1000 * summation(m.debugGain)
+        elif debug_loss:
+            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
+                   - 1000 * summation(m.virtualPrecipGain) \
                    - 1000 * summation(m.debugLoss)
         else:
             return summation(m.nodeValueDB, m.nodeDeliveryDB) \

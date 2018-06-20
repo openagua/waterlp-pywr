@@ -109,7 +109,8 @@ class WaterSystem(object):
     def __init__(self, conn, name, network, all_scenarios, template, attrs, args, settings=None, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
-        self.VOLUMETRIC_FLOW_RATE_CONST = 0.0864  # 60*60*24/1e6
+        self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
+        self.ACRE_FEET_TO_VOLUME = 43559.9 / 1e6
 
         self.conn = conn
         self.session = session
@@ -203,7 +204,7 @@ class WaterSystem(object):
                             'is_var': ra.attr_is_var
                         }
 
-                        if ra.attr_is_var == 'N' and args.write_input:
+                        if ra.attr_is_var == 'N' and not args.suppress_input:
                             self.nparams += 1
                         else:
                             self.nvars += 1
@@ -281,7 +282,7 @@ class WaterSystem(object):
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
 
-        nsubblocks = 1
+        nsubblocks = 5
         self.default_subblocks = list(range(nsubblocks))
 
         # collect source data
@@ -308,7 +309,6 @@ class WaterSystem(object):
                     # fid = self.ra_net[rs.resource_attr_id]
 
                 self.evaluator.rs_values[(resource_type, resource_id, rs.attr_id)] = rs.value
-
 
         for source_id in self.scenario.source_ids:
 
@@ -467,9 +467,11 @@ class WaterSystem(object):
 
                 self.params[param_name] = {
                     'attr_name': type_attr['attr_name'],
+                    'attr_id': type_attr['attr_id'],
                     'type_attr': type_attr,
                     'is_var': type_attr['is_var'],
                     'resource_type': resource_type.lower(),
+                    'unit': type_attr['unit']
                 }
 
     def setup_subscenario(self, supersubscenario):
@@ -608,6 +610,7 @@ class WaterSystem(object):
                     is_function = p.get('is_function')
                     dimension = p.get('dimension')
                     has_blocks = p.get('has_blocks', False)
+                    unit = self.params[param_name]['unit']
 
                     rt = self.params[param_name]['resource_type']
                     startup_date = self.variables.get('{}StartupDate'.format(rt), {}).get(idx, '')
@@ -663,8 +666,10 @@ class WaterSystem(object):
 
                             # if is_function:
                             # TODO: use generic unit converter here (and move to evaluator)
-                            if dimension == 'Volumetric flow rate':
+                            if unit == 'ft^3 s^-1':
                                 val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
+                            elif unit == 'ac-ft':
+                                val *= self.ACRE_FEET_TO_VOLUME
 
                             # create key
                             key = list(idx) + [i] if type(idx) == tuple else [idx, i]
@@ -701,11 +706,12 @@ class WaterSystem(object):
                 getattr(self.instance, 'linkValueDB')[idx] = \
                     lowval - (getattr(self.instance, 'linkPriority')[idx].value or lowval)
 
-    def collect_results(self, timesteps, tsidx, include_all=False, write_input=True):
+    def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
 
         # loop through all the model parameters and variables
-        for param in self.instance.component_objects(Param):
-            self.store_results(param, timesteps, tsidx, is_var=False, include_all=include_all)
+        if not suppress_input:
+            for param in self.instance.component_objects(Param):
+                self.store_results(param, timesteps, tsidx, is_var=False, include_all=include_all)
 
         for var in self.instance.component_objects(Var):
             self.store_results(var, timesteps, tsidx, is_var=True, include_all=include_all)
@@ -721,6 +727,8 @@ class WaterSystem(object):
         rt = self.params[param.name]['resource_type']
 
         has_blocks = self.params.get(param.name, {}).get('attr_name') in self.block_params
+
+        unit = self.params[param.name]['unit']
 
         # collect to results
         for idx, p in param.items():
@@ -748,6 +756,11 @@ class WaterSystem(object):
             # on the other hand, it should be checked which is faster: Pandas group_by or simple addition here
 
             val = 0 or round(p.value, 6)
+
+            if unit == 'ac-ft':
+                val /= self.ACRE_FEET_TO_VOLUME
+            elif unit == 'ft^3 s^-1':
+                val /= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
 
             if has_blocks:
                 self.results[param.name][res_idx][timestamp] = \
@@ -873,14 +886,14 @@ class WaterSystem(object):
                     res_scens.append(rs)
                     mb += len(value.encode()) * 1.1 / 1e6  # large factor of safety
 
-                    if mb > 10:
+                    if mb > 10 or count % 100 == 0:
                         result_scenario['resourcescenarios'] = res_scens[:-1]
                         resp = self.conn.dump_results(result_scenario)
-                        if count % 10 == 0 or pcount == nparams:
-                            if self.scenario.reporter:
-                                self.scenario.reporter.report(
-                                    action='save',
-                                    saved=round(count / (self.nparams + self.nvars) * 100))
+                        # if count % 20 == 0 or pcount == nparams:
+                        if self.scenario.reporter:
+                            self.scenario.reporter.report(
+                                action='save',
+                                saved=round(count / (self.nparams + self.nvars) * 100))
 
                         # purge just-uploaded scenarios
                         res_scens = res_scens[-1:]

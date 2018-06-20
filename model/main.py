@@ -222,13 +222,14 @@ def commandline_parser():
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
     parser.add_argument('--debug_ts', dest='debug_ts', type=int, default=10,
                         help='''The number of timesteps to run in debug mode.''')
-    parser.add_argument('--debug_lp', dest='debug_lp', action='store_true', help='''Debug flag for the Pyomo model.''')
+    parser.add_argument('--debug_gain', dest='debug_gain', action='store_true', help='''Debug flag for the Pyomo model.''')
+    parser.add_argument('--debug_loss', dest='debug_loss', action='store_true', help='''Debug flag for the Pyomo model.''')
     parser.add_argument('--c', dest='custom', type=dict, default={},
                         help='''Custom arguments passed as stringified JSON.''')
     parser.add_argument('--dest', dest='destination', default='source',
                         help='''Destination of results. Options for now include "source" or "aws_s3"''')
-    parser.add_argument('--wi', dest='write_input', action='store_true',
-                        help='''Write input data to results.''')
+    parser.add_argument('--si', dest='suppress_input', action='store_true',
+                        help='''Suppress input from results. This can speed up writing results.''')
     parser.add_argument('--st', dest='start_time', default=datetime.now().isoformat(), help='''Run start time.''')
     parser.add_argument('--rkey', dest='report_api_key', default='',
                         help='''Generic option for passing an API key for reporting to client.''')

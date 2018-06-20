@@ -37,8 +37,9 @@ def run_scenario(supersubscenario, conn=None, args=None, verbose=False):
 
     try:
 
-        for result in _run_scenario(system, args, conn, supersubscenario, reporter=reporter, verbose=verbose):
-            pass
+        # for result in _run_scenario(system, args, conn, supersubscenario, reporter=reporter, verbose=verbose):
+        #     pass
+        _run_scenario(system, args, supersubscenario, reporter=reporter, verbose=verbose)
 
     except Exception as e:
 
@@ -57,7 +58,7 @@ def run_scenario(supersubscenario, conn=None, args=None, verbose=False):
             reporter.report(action='error', message=msg)
 
 
-def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, reporter=None, verbose=False):
+def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, verbose=False):
     global current_step, total_steps
 
     debug = args.debug
@@ -84,7 +85,8 @@ def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, repo
         ts_idx=system.ts_idx,
         params=system.params,
         blocks=system.blocks,
-        debug=args.debug_lp
+        debug_gain=args.debug_gain,
+        debug_loss=args.debug_loss
     )
 
     system.instance = system.model.create_instance()
@@ -135,7 +137,7 @@ def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, repo
             # if verbose:
             # logd.info('Optimal feasible solution found.')
 
-            system.collect_results(current_dates_as_string, tsidx=i, write_input=args.write_input)
+            system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
 
             # if verbose:
             # logd.info('Results saved.')
@@ -180,9 +182,12 @@ def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, repo
         # update the model instance
         if ts != runs[-1]:
             ts_next = runs[i + 1]
-            system.update_initial_conditions()
-            system.update_boundary_conditions(ts + 1, ts + 1 + system.foresight_periods)
-            system.update_internal_params()  # update internal parameters that depend on user-defined variables
+            try:
+                system.update_initial_conditions()
+                system.update_boundary_conditions(ts_next, ts_next + system.foresight_periods)
+                system.update_internal_params()  # update internal parameters that depend on user-defined variables
+            except:
+                raise
             system.instance.preprocess()
 
         else:
@@ -205,7 +210,7 @@ def _run_scenario(system=None, args=None, conn=None, supersubscenario=None, repo
 
         i += 1
 
-        yield
+        # yield
 
     # POSTPROCESSING HERE (IF ANY)
 

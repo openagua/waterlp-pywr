@@ -22,8 +22,8 @@ class Reporter:
             payload = {**self.base_payload, **payload}
         return requests.post('{}/{}'.format(self._post_url, action), json=payload)
 
-    def report(self, action, **payload):
-        action = payload.get('action')
+    def report(self, action=None, **payload):
+        action = payload.get('action', action)
         if self.updater:
             payload = self.updater(action=action, **payload)
         if action == 'step':
