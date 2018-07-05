@@ -78,7 +78,6 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     system.init_pyomo_params()
     system.model = create_model(
         name=system.name,
-        template=system.template,
         nodes=list(system.nodes.keys()),
         links=list(system.links.keys()),
         types=system.ttypes,
@@ -123,28 +122,14 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
         # solve the model
         results = optimizer.solve(system.instance)
-        # system.instance.solutions.load_from(results)
-
-        # print & save summary results
-        # if verbose:
-        # old_stdout = sys.stdout
-        # sys.stdout = summary = StringIO()
-        # logd.info('model solved\n' + summary.getvalue())
 
         if (results.solver.status == SolverStatus.ok) \
                 and (results.solver.termination_condition == TerminationCondition.optimal):
-            # this is feasible and optimal
-            # if verbose:
-            # logd.info('Optimal feasible solution found.')
-
             system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
-
-            # if verbose:
-            # logd.info('Results saved.')
 
         elif results.solver.termination_condition == TerminationCondition.infeasible:
             system.save_results()
-            msg = 'ERROR: Problem is infeasible at step {} of {} ({}). Prior results have been saved.'.format(
+            msg = 'ERROR: Problem is infeasible at step {} of {} ({}). Partial results have been saved.'.format(
                 current_step, total_steps, current_dates[0]
             )
             if system.scenario.reporter:
@@ -153,26 +138,16 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
         else:
             system.save_results()
-            # something else is wrong
-            msg = 'ERROR: Something went wrong. Likely the model was not built correctly.'
+            msg = 'ERROR: Something went wrong at step {} of {} ({}). This might indicate an infeasibility, but not necessarily.'.format(
+                current_step, total_steps, current_dates[0]
+            )
             print(msg)
-            # logd.info(msg)
-            payload = system.scenario.update_payload(action='error', payload={'message': msg})
             if system.scenario.reporter:
                 system.scenario.reporter.report(action='error', message=msg)
             break
 
-        # if foresight_periods == 1:
-        # print("Writing results...")
-        # results.write()
-
-        # else:
-
         # load the results
-        # print("Loading results...")
         system.instance.solutions.load_from(results)
-        # if verbose:
-        # sys.stdout = old_stdout
 
         system.scenario.finished += 1
 

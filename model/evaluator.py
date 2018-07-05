@@ -408,6 +408,7 @@ class Evaluator:
         date = kwargs.get('date')
         counter = kwargs.get('counter')
         flavor = kwargs.get('flavor', 'pandas')
+        offset = kwargs.get('offset')
 
         parts = key.split('/')
         ref_key, ref_id, attr_id = parts
@@ -440,15 +441,17 @@ class Evaluator:
             value = eval_data
 
             if self.data_type == 'timeseries':
+                if offset:
+                    date_offset = self.dates.index(date) + offset
+                    date = self.dates[date_offset]
                 datetime = date.to_datetime_string()
                 if flavor == 'pandas':
                     result = value.loc[datetime]
                 elif flavor == 'dict':
-                    keys = value.keys()
                     if has_blocks:
-                        result = {c: value[c][datetime] for c in keys}
+                        result = {c: value[c][datetime] for c in value.keys()}
                     else:
-                        result = value.get(datetime) or value.get(0, {}).get(datetime)
+                        result = value.get(datetime) or value.get(0, {}).get(datetime, 0)
             else:
                 result = value
 

@@ -22,10 +22,10 @@ class Reporter:
             payload = {**self.base_payload, **payload}
         return requests.post('{}/{}'.format(self._post_url, action), json=payload)
 
-    def report(self, action=None, **payload):
-        action = payload.get('action', action)
+    def report(self, **payload):
+        action = payload.get('action')
         if self.updater:
-            payload = self.updater(action=action, **payload)
+            payload = self.updater(**payload)
         if action == 'step':
             elapsed_time = round(time.time() - self.start_time)
             if elapsed_time % 2 == 0 and elapsed_time != self.old_elapsed_time or payload.get('progress') == 100:
@@ -45,7 +45,7 @@ class Reporter:
             self.start_time = time.time()
             self.old_elapsed_time = 0
             self.base_payload = payload
-        self.report(**payload)
+        self.send(**payload)
 
     def _init_heartbeat(self):
         self.heartbeat_timer = threading.Timer(5, self._heartbeat).start()

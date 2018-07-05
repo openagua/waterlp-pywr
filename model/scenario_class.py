@@ -95,7 +95,7 @@ class Scenario(object):
         payload.update({
             'sid': self.unique_id,
             'source_id': self.source_id,
-            'netid': self.network_id,
+            'network_id': self.network_id,
             'scids': self.scenario_ids,
             # 'scenario_name': self.name,
             'status': 'unknown'

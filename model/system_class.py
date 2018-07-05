@@ -110,7 +110,7 @@ class WaterSystem(object):
                  session=None, reporter=None, scenario=None):
 
         self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
-        self.ACRE_FEET_TO_VOLUME = 43559.9 / 1e6
+        self.ACRE_FEET_TO_VOLUME = 43559.9 / 1e6 * 1e3  # NOTE: model units are TAF, not AF
 
         self.conn = conn
         self.session = session
@@ -304,9 +304,9 @@ class WaterSystem(object):
                     resource_id = self.ra_link[rs.resource_attr_id]
                     idx = self.link_nodes[resource_id]
                 else:
-                    continue  # network attributes don't belong in the model (at least for now)
-                    # resource_type = 'net'
-                    # fid = self.ra_net[rs.resource_attr_id]
+                    resource_type = 'network'
+                    resource_id = self.network.id
+                    idx = -1
 
                 self.evaluator.rs_values[(resource_type, resource_id, rs.attr_id)] = rs.value
 
@@ -338,9 +338,8 @@ class WaterSystem(object):
                     resource_id = self.ra_link[rs.resource_attr_id]
                     idx = self.link_nodes[resource_id]
                 else:
-                    continue  # network attributes don't belong in the model (at least for now)
-                    # resource_type = 'net'
-                    # fid = self.ra_net[rs.resource_attr_id]
+                    resource_type = 'network'
+                    idx = -1
 
                 # identify as function or not
                 is_function = metadata.get('use_function', 'N') == 'Y'
@@ -431,7 +430,6 @@ class WaterSystem(object):
                             'is_function': is_function,
                             'function': function,
                             'has_blocks': has_blocks,
-                            'dimension': dimension,
                         }
                     except:
                         raise
@@ -457,7 +455,7 @@ class WaterSystem(object):
 
             for type_attr in ttype.typeattrs:
 
-                data_type = type_attr['data_type']
+                # data_type = type_attr['data_type']
 
                 # create a unique parameter name
                 param_name = get_param_name(resource_type, type_attr['attr_name'])
@@ -471,7 +469,8 @@ class WaterSystem(object):
                     'type_attr': type_attr,
                     'is_var': type_attr['is_var'],
                     'resource_type': resource_type.lower(),
-                    'unit': type_attr['unit']
+                    'unit': type_attr['unit'],
+                    'dimension': type_attr['dimension']
                 }
 
     def setup_subscenario(self, supersubscenario):
@@ -545,6 +544,7 @@ class WaterSystem(object):
             data_type = type_attr['data_type']
             resource_type = param['resource_type']
             attr_name = param['attr_name']
+            unit = self.params[param_name]['unit']
 
             param_definition = None
 
@@ -557,6 +557,10 @@ class WaterSystem(object):
 
                 if data_type == 'scalar':
                     param_definition = 'm.{rt}s'
+
+                    if unit == 'ac-ft':
+                        initial_values = {key: value * self.ACRE_FEET_TO_VOLUME for (key, value) in
+                                          initial_values.items()}
 
                 elif data_type == 'timeseries':
                     if attr_name in self.block_params:
@@ -608,8 +612,8 @@ class WaterSystem(object):
                 try:
 
                     is_function = p.get('is_function')
-                    dimension = p.get('dimension')
                     has_blocks = p.get('has_blocks', False)
+                    dimension = self.params[param_name]['dimension']
                     unit = self.params[param_name]['unit']
 
                     rt = self.params[param_name]['resource_type']
@@ -620,9 +624,11 @@ class WaterSystem(object):
                         self.evaluator.tsi = tsi
                         self.evaluator.tsf = tsf
                         try:
-                            fn = p.get('function')
+                            fn = p.get('function', '')
                             rc, errormsg, values = self.evaluator.eval_function(fn, flavor='dict', counter=0,
                                                                                 has_blocks=has_blocks)
+                            if errormsg:
+                                raise Exception(errormsg)
                         except:
                             raise
 
@@ -665,11 +671,13 @@ class WaterSystem(object):
                                 val = vals[datetime]
 
                             # if is_function:
-                            # TODO: use generic unit converter here (and move to evaluator)
-                            if unit == 'ft^3 s^-1':
+                            # TODO: use generic unit converter here (and move to evaluator?)
+                            if dimension == 'Volumetric flow rate':
+                                # if unit == 'ft^3 s^-1':
                                 val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
-                            elif unit == 'ac-ft':
-                                val *= self.ACRE_FEET_TO_VOLUME
+                            elif dimension == 'Volume':
+                                if unit == 'ac-ft':
+                                    val *= self.ACRE_FEET_TO_VOLUME
 
                             # create key
                             key = list(idx) + [i] if type(idx) == tuple else [idx, i]
@@ -728,6 +736,7 @@ class WaterSystem(object):
 
         has_blocks = self.params.get(param.name, {}).get('attr_name') in self.block_params
 
+        dimension = self.params[param.name]['dimension']
         unit = self.params[param.name]['unit']
 
         # collect to results
@@ -757,9 +766,11 @@ class WaterSystem(object):
 
             val = 0 or round(p.value, 6)
 
-            if unit == 'ac-ft':
-                val /= self.ACRE_FEET_TO_VOLUME
-            elif unit == 'ft^3 s^-1':
+            if dimension == 'Volume':
+                if unit == 'ac-ft':
+                    val /= self.ACRE_FEET_TO_VOLUME
+            elif dimension == 'Volumetric flow rate':
+                # elif unit == 'ft^3 s^-1':
                 val /= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
 
             if has_blocks:

@@ -3,7 +3,7 @@ from pyomo.environ import AbstractModel, Set, Objective, Var, Param, Constraint,
 
 
 # create the model
-def create_model(name, template, nodes, links, types, ts_idx, params, blocks, debug_gain=False, debug_loss=False):
+def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=False, debug_loss=False):
     m = AbstractModel(name=name)
 
     # SETS
@@ -32,7 +32,7 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
     # sets for non-storage nodes
     m.Storage = m.Reservoir | m.Groundwater  # union
     m.NonStorage = m.Nodes - m.Storage  # difference
-    m.DemandNodes = m.GeneralDemand | m.UrbanDemand | m.Hydropower | m.FlowRequirement # we should eliminate differences
+    m.DemandNodes = m.GeneralDemand | m.UrbanDemand | m.Hydropower | m.FlowRequirement  # we should eliminate differences
     m.NonJunction = m.Nodes - m.Junction
 
     # sets for links with channel capacity
@@ -179,7 +179,7 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
 
     def NodeDelivery_definition(m, j, t):
         '''Deliveries comprise delivery blocks'''
-        if j in m.Storage | m.DemandNodes | m.FlowRequirement:
+        if j in m.Storage | m.DemandNodes:
             return m.nodeDelivery[j, t] == sum(m.nodeDeliveryDB[j, b, sb, t] for (b, sb) in nodeBlockLookup(j))
         else:
             return Constraint.Skip
@@ -208,7 +208,11 @@ def create_model(name, template, nodes, links, types, ts_idx, params, blocks, de
         '''Delivery blocks cannot exceed their corresponding demand blocks.
         By extension, deliveries cannot exceed demands.
         '''
-        return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeDemand[j, b, sb, t]
+
+        if j in m.FlowRequirement:
+            return Constraint.Skip
+        else:
+            return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeDemand[j, b, sb, t]
 
     m.NodeBlock_constraint = Constraint(m.NodeBlocks, m.TS, rule=NodeBlock_rule)
 
