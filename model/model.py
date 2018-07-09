@@ -32,7 +32,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
     # sets for non-storage nodes
     m.Storage = m.Reservoir | m.Groundwater  # union
     m.NonStorage = m.Nodes - m.Storage  # difference
-    m.DemandNodes = m.GeneralDemand | m.UrbanDemand | m.Hydropower | m.FlowRequirement  # we should eliminate differences
+    m.DemandNodes = m.GeneralDemand | m.UrbanDemand | m.Hydropower  # we should eliminate differences
     m.NonJunction = m.Nodes - m.Junction
 
     # sets for links with channel capacity
@@ -96,6 +96,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     m.nodeRelease = Var(m.Reservoir * m.TS, domain=NonNegativeReals)  # controlled release to a river
     m.nodeSpill = Var(m.Reservoir * m.TS, domain=NonNegativeReals)  # uncontrolled/undesired release to a river
+    m.nodeExcess = Var(m.FlowRequirement * m.TS, domain=NonNegativeReals)
     # m.emptyStorage = Var(m.Reservoir * m.TS, domain=NonNegativeReals) # empty storage space
 
     # variables to prevent infeasibilities
@@ -179,7 +180,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     def NodeDelivery_definition(m, j, t):
         '''Deliveries comprise delivery blocks'''
-        if j in m.Storage | m.DemandNodes:
+        if j in m.Storage | m.DemandNodes | m.FlowRequirement:
             return m.nodeDelivery[j, t] == sum(m.nodeDeliveryDB[j, b, sb, t] for (b, sb) in nodeBlockLookup(j))
         else:
             return Constraint.Skip
@@ -187,7 +188,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
     m.NodeDelivery_definition = Constraint(m.Nodes, m.TS, rule=NodeDelivery_definition)
 
     def NodeDelivery_rule(m, j, t):
-        '''Deliveries may not exceed physical conditions. Note that deliveries are not part of mass balance constraints per se, but rather limited here by mass balance.'''
+        '''Deliveries may not exceed physical conditions.'''
         if j in m.Storage:
             # delivery cannot exceed storage
             return m.nodeDelivery[j, t] <= m.nodeStorage[j, t]
@@ -197,6 +198,8 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
             # TODO: make this more sophisticated to account for more specific gains and losses (basically, everything except consumptive losses; this might be left to the user to add precip, etc. as part of a local gain function)
             # in the following, the assumption is that any water going to a demand node is accounted for as a delivery
             return m.nodeDelivery[j, t] == m.nodeInflow[j, t] + m.nodeLocalGain[j, t] - m.nodeLocalLoss[j, t]
+        elif j in m.FlowRequirement:
+            return m.nodeDelivery[j, t] + m.nodeExcess[j, t] <= sum(m.linkOutflow[i, j, t] for i in m.NodesIn[j])
         else:
             # delivery cannot exceed sum of inflows
             # TODO: update this to also include local gains and losses (at, for example, flow requirement nodes)
@@ -206,11 +209,11 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     def NodeBlock_rule(m, j, b, sb, t):
         '''Delivery blocks cannot exceed their corresponding demand blocks.
-        By extension, deliveries cannot exceed demands.
+        By extension, deliveries cannot exceed demands. This does not apply to flow requirements.
         '''
 
         if j in m.FlowRequirement:
-            return Constraint.Skip
+            return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeDemand[j, b, sb, t]
         else:
             return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeDemand[j, b, sb, t]
 
@@ -268,6 +271,9 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
         return m.nodeRelease[j, t] <= m.nodeMaximumOutflow[j, t]
 
     m.MaximumOutflow = Constraint(m.Reservoir, m.TS, rule=MaxReservoirRelease_rule)
+
+    def ExcessFlowRequirement_definision(m, j, t):
+        return m.nodeInflow
 
     # def EmptyStorage_definition(m, j, t):
     #     return m.emptyStorage[j, t] == m.nodeStorageCapacity[j, t] - m.nodeStorage[j, t]
