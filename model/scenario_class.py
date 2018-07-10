@@ -65,7 +65,11 @@ class Scenario(object):
             self.time_step = max(self.time_step, source.get('time_step', ''))
 
             this_chain.reverse()
-            self.source_ids.extend(this_chain)
+
+            if i == 0:
+                self.source_ids.extend(this_chain)  # include baseline
+            else:
+                self.source_ids.extend(this_chain[1:]) # exclude baseline
 
         self.base_ids = []
         for s in self.base_scenarios:
