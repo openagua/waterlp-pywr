@@ -137,14 +137,15 @@ def eval_timeseries(timeseries, dates, fill_value=None, method=None, flavor=None
 
 def eval_array(array):
     try:
-        array = literal_eval(array)
+        result = json.loads(array)
         returncode = 0
         errormsg = 'No errors!'
     except:
+        result = array
         returncode = 1
         errormsg = 'Something is wrong.'
 
-    return returncode, errormsg, array
+    return returncode, errormsg, result
 
 
 def parse_function(s, name, argnames, modules=()):
@@ -416,14 +417,6 @@ class Evaluator:
         attr_id = int(attr_id)
         result = None
 
-        # if key not in self.data:
-        # resource_scenario = self.conn.get_res_attr_data(
-        #     ref_key=ref_key.upper(),
-        #     ref_id=int(ref_id),
-        #     scenario_id=[self.scenario_id],
-        #     attr_id=int(attr_id)
-        # )
-
         rs_value = self.rs_values.get((ref_key, ref_id, attr_id))
 
         try:
@@ -439,21 +432,25 @@ class Evaluator:
             )
 
             value = eval_data
+            result = value
 
             if self.data_type == 'timeseries':
-                if offset:
-                    date_offset = self.dates.index(date) + offset
-                    date = self.dates[date_offset]
-                datetime = date.to_datetime_string()
-                if flavor == 'pandas':
-                    result = value.loc[datetime]
-                elif flavor == 'dict':
-                    if has_blocks:
-                        result = {c: value[c][datetime] for c in value.keys()}
-                    else:
-                        result = value.get(datetime) or value.get(0, {}).get(datetime, 0)
-            else:
-                result = value
+                if rs_value.type == 'timeseries':
+                    if offset:
+                        date_offset = self.dates.index(date) + offset
+                        date = self.dates[date_offset]
+                    datetime = date.to_datetime_string()
+
+                    if flavor == 'pandas':
+                        result = value.loc[datetime]
+                    elif flavor == 'dict':
+                        if has_blocks:
+                            result = {c: value[c][datetime] for c in value.keys()}
+                        else:
+                            result = value.get(datetime) or value.get(0, {}).get(datetime, 0)
+                elif rs_value.type == 'array':
+                    if flavor == 'pandas':
+                        result = pd.DataFrame(value)
 
             return result
 
