@@ -625,8 +625,7 @@ class WaterSystem(object):
                         self.evaluator.tsf = tsf
                         try:
                             fn = p.get('function', '')
-                            rc, errormsg, values = self.evaluator.eval_function(fn, flavor='dict', counter=0,
-                                                                                has_blocks=has_blocks)
+                            rc, errormsg, values = self.evaluator.eval_function(fn, counter=0, has_blocks=has_blocks)
                             if errormsg:
                                 raise Exception(errormsg)
                         except:
