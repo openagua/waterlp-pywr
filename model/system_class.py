@@ -725,22 +725,25 @@ class WaterSystem(object):
 
     def store_results(self, param, timesteps, tsidx, is_var, include_all=None):
 
-        param = self.params.get(param.name, {})
-        if not param and param.name not in ['debugLoss', 'debugGain']:
+        selfparam = self.params.get(param.name, {})
+        if not selfparam and param.name not in ['debugLoss', 'debugGain']:
             return
 
         if tsidx == 0:
             self.results[param.name] = {}
 
-        rt = param.get('resource_type')
-        has_blocks = param.get('attr_name') in self.block_params
-        dimension = param.get('dimension')
-        unit = param.get('unit')
-
-        debugLossGain = False
+        rt = selfparam.get('resource_type')
+        has_blocks = selfparam.get('attr_name') in self.block_params
+        dimension = selfparam.get('dimension')
+        unit = selfparam.get('unit')
 
         # collect to results
         for idx, p in param.items():
+
+            if param.name in ['debugLoss', 'debugGain'] and p.value:
+                res_idx = idx[0]
+                res_name = self.nodes[res_idx]['name']
+                raise Exception("DEBUG: {} for {} with value {}".format(param.name, res_name, p.value))
 
             if is_var:
 
@@ -779,12 +782,6 @@ class WaterSystem(object):
             else:
                 self.results[param.name][res_idx][timestamp] = val
 
-            debugLossGain = debugLossGain or param.name in ['debugLoss', 'debugGain'] and val
-
-        if debugLossGain:
-            with open('debug.txt', 'w') as f:
-                f.write(json.dumps(self.results, indent=4))
-            raise Exception("ERROR: Infeasibility found.")
         return
 
     def save_results(self):
