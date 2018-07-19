@@ -146,7 +146,8 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
     def LocalLoss_rule(m, j, t):
         if j in m.Reservoir:
             # excess evap should not cause infeasibility, so (expensive) virtualPrecepGain is subtracted from net evap
-            loss = m.nodeNetEvaporation[j, t] - m.virtualPrecipGain[j, t]
+            # loss = m.nodeNetEvaporation[j, t] - m.virtualPrecipGain[j, t]
+            loss = 0
         elif j in m.DemandNodes:
             loss = m.nodeLocalLoss[j, t] + m.nodeDelivery[j, t] * m.nodeConsumptiveLoss[j, t] / 100
         elif j in m.Groundwater:

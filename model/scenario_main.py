@@ -134,7 +134,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             )
             if system.scenario.reporter:
                 system.scenario.reporter.report(action='error', message=msg)
-            break
+            raise Exception(msg)
 
         else:
             system.save_results()
@@ -144,7 +144,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             print(msg)
             if system.scenario.reporter:
                 system.scenario.reporter.report(action='error', message=msg)
-            break
+            raise Exception(msg)
 
         # load the results
         system.instance.solutions.load_from(results)
@@ -171,17 +171,6 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             if verbose:
                 print('finished')
-
-        # if verbose:
-        # logd.info(
-        # 'completed timestep {date} | {timestep}/{total_timesteps}'.format(
-        # date=system.dates[ts],
-        # timestep=ts+1,
-        # total_timesteps=nruns
-        # )
-        # )
-
-        #######################
 
         i += 1
 
