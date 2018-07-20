@@ -783,6 +783,7 @@ class WaterSystem(object):
                 self.results[param.name][res_idx][timestamp] = \
                     val + self.results[param.name][res_idx].get(timestamp, 0)
             else:
+                # TODO: combine self.results and self.evaluator results. This takes up a lot of memory!
                 self.results[param.name][res_idx][timestamp] = val
                 attr_id = self.params[param.name]['type_attr']['attr_id']
                 if rt == 'node':
