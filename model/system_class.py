@@ -740,10 +740,13 @@ class WaterSystem(object):
         # collect to results
         for idx, p in param.items():
 
-            if param.name in ['debugLoss', 'debugGain'] and p.value:
-                res_idx = idx[0]
-                res_name = self.nodes[res_idx]['name']
-                raise Exception("DEBUG: {} for {} with value {}".format(param.name, res_name, p.value))
+            if param.name in ['debugLoss', 'debugGain']:
+                if p.value:
+                    res_idx = idx[0]
+                    res_name = self.nodes[res_idx]['name']
+                    raise Exception("DEBUG: {} for {} with value {}".format(param.name, res_name, p.value))
+                else:
+                    continue
 
             if is_var:
 
@@ -781,6 +784,15 @@ class WaterSystem(object):
                     val + self.results[param.name][res_idx].get(timestamp, 0)
             else:
                 self.results[param.name][res_idx][timestamp] = val
+                attr_id = self.params[param.name]['type_attr']['attr_id']
+                if rt == 'node':
+                    res_id = self.nodes[res_idx]
+                else:
+                    res_id = self.links[res_idx]['id']
+                key = '{ref_key}/{ref_id}/{attr_id}'.format(ref_key=rt, ref_id=res_id, attr_id=attr_id)
+                if key not in self.evaluator.results:
+                    self.evaluator.results[key] = {}
+                self.evaluator.results[key][timestamp] = val
 
         return
 
