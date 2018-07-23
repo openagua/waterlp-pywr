@@ -152,10 +152,10 @@ def run_scenarios(args, log):
     # =======================
 
     if args.debug:
-        run_scenario(all_supersubscenarios[0], conn=conn, args=args)
+        run_scenario(all_supersubscenarios[0], args=args)
         return
     else:
-        p = partial(run_scenario, conn=conn, args=args, verbose=verbose)
+        p = partial(run_scenario, args=args, verbose=verbose)
 
         # set multiprocessing parameters
         poolsize = mp.cpu_count()

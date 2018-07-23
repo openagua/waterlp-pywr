@@ -58,7 +58,8 @@ class connection(object):
                     'name': ta.attr_name,
                     'dtype': ta.data_type,
                     'unit': ta.unit,
-                    'dim': ta.dimension
+                    'dim': ta.dimension,
+                    'is_var': ta.is_var == 'Y'
                 })
 
         # dictionary to store resource attribute ids

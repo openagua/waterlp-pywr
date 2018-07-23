@@ -278,13 +278,11 @@ class Evaluator:
             result = None
 
             # metadata = json.loads(resource_scenario.value.metadata)
-            metadata = json.loads(value.metadata)
+            metadata = json.loads(value.get('metadata', '{}'))
             if func is None:
                 func = metadata.get('function')
             usefn = metadata.get('use_function', 'N') == 'Y'
-            # if value is None:
-            #     value = value.value
-            data_type = value.type
+            data_type = value['type']
 
             if usefn:
                 func = func if type(func) == str else ''
@@ -445,7 +443,7 @@ class Evaluator:
         try:
             attr = self.conn.attrs[ref_key][attr_id]
             has_blocks = attr['name'] in self.block_params
-            if key != parentkey:  # tracking parent key prevents stack overflows
+            if key != parentkey and rs_value is not None and rs_value['value'] is not None:  # tracking parent key prevents stack overflows
                 eval_data = self.eval_data(
                     value=rs_value,
                     do_eval=False,
@@ -463,7 +461,7 @@ class Evaluator:
             result = value
 
             if self.data_type == 'timeseries':
-                if rs_value.type == 'timeseries':
+                if rs_value['type'] == 'timeseries':
 
                     # store results from get function
                     if key not in self.results:

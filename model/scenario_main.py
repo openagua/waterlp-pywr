@@ -11,7 +11,7 @@ current_step = 0
 total_steps = 0
 
 
-def run_scenario(supersubscenario, conn=None, args=None, verbose=False):
+def run_scenario(supersubscenario, args=None, verbose=False):
     global current_step, total_steps
 
     system = supersubscenario.get('system')
@@ -73,7 +73,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     system.setup_subscenario(supersubscenario)
 
     # initialize boundary conditions
-    system.update_boundary_conditions(0, system.foresight_periods, initialize=True)
+    system.update_boundary_conditions(0, system.foresight_periods, scope='model', initialize=True)
 
     system.init_pyomo_params()
     system.model = create_model(
@@ -159,7 +159,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             ts_next = runs[i + 1]
             try:
                 system.update_initial_conditions()
-                system.update_boundary_conditions(ts_next, ts_next + system.foresight_periods)
+                system.update_boundary_conditions(ts, ts + system.foresight_periods, 'intermediary')
+                system.update_boundary_conditions(ts_next, ts_next + system.foresight_periods, 'model')
                 system.update_internal_params()  # update internal parameters that depend on user-defined variables
             except:
                 raise
