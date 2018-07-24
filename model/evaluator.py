@@ -257,15 +257,13 @@ class Evaluator:
 
         self.calculators = {}
 
-        self.data = {}
         # This stores data that can be referenced later, in both time and space.
         # The main purpose is to minimize repeated calls to data sources, especially
         # when referencing other networks/resources/attributes within the project.
         # While this needs to be recreated on every new evaluation or run, within
         # each evaluation or run this can store as much as possible for reuse.
-
-        # Store results that can be referenced later
-        self.results = {}
+        self.store = {}
+        self.hashstore = {}
 
     def eval_data(self, value, func=None, do_eval=False, data_type=None, flavor=None, counter=0, fill_value=None,
                   date_format='iso', has_blocks=False, parentkey=None):
@@ -331,21 +329,21 @@ class Evaluator:
         detail = None
         value = None
 
-        key = hashlib.sha224(str.encode(code_string)).hexdigest()
+        hashkey = hashlib.sha224(str.encode(code_string)).hexdigest()
 
         # check if we already know about this function so we don't
         # have to do duplicate (possibly expensive) execs
         # if key not in self.myfuncs:
-        if not hasattr(self.namespace, key):
+        if not hasattr(self.namespace, hashkey):
             try:
                 # create the string defining the wrapper function
                 # Note: functions can't start with a number so pre-pend "func_"
-                func_name = "func_{}".format(key)
+                func_name = "func_{}".format(hashkey)
                 func = parse_function(code_string, name=func_name, argnames=self.argnames)
                 # TODO : exec is unsafe
                 exec(func, globals())
                 # self.myfuncs[key] = func_name
-                setattr(self.namespace, key, eval(func_name))
+                setattr(self.namespace, hashkey, eval(func_name))
             except Exception as e:
                 print(e)
             except SyntaxError as err:  # syntax error
@@ -355,19 +353,19 @@ class Evaluator:
 
         try:
             # CORE EVALUATION ROUTINE
-            if key not in self.results:
-                self.results[key] = [0 for d in self.dates]
+            if hashkey not in self.hashstore:
+                self.hashstore[hashkey] = [0 for d in self.dates]
             tsi = self.tsi
             tsf = self.tsf
             for i, date in enumerate(self.dates[tsi:tsf]):
                 timestep = self.dates.index(date)
-                value = getattr(self.namespace, key)(self, hashkey=key, date=date, timestep=timestep + 1,
+                value = getattr(self.namespace, hashkey)(self, hashkey=hashkey, date=date, timestep=timestep + 1,
                                                      counter=counter + 1, flavor=flavor, parentkey=parentkey)
-                self.results[key][timestep] = value
+                self.hashstore[hashkey][timestep] = value
                 if self.data_type != 'timeseries':
                     break
 
-            values = self.results[key][tsi:]
+            values = self.hashstore[hashkey][tsi:]
             if self.data_type == 'timeseries' or self.data_type == 'periodic timeseries':
                 dates_idx = self.dates_as_string[tsi:tsf]
                 if type(values[0]) in (list, tuple):
@@ -441,9 +439,10 @@ class Evaluator:
         flavor = kwargs.get('flavor')
 
         try:
-            attr = self.conn.attrs[ref_key][attr_id]
-            has_blocks = attr['name'] in self.block_params
-            if key != parentkey and rs_value is not None and rs_value['value'] is not None:  # tracking parent key prevents stack overflows
+            tattr = self.conn.tattrs[(ref_key, ref_id, attr_id)]
+            has_blocks = tattr['attr_name'] in self.block_params
+            if key != parentkey and rs_value is not None \
+                    and rs_value['value'] is not None:  # tracking parent key prevents stack overflows
                 eval_data = self.eval_data(
                     value=rs_value,
                     do_eval=False,
@@ -464,8 +463,8 @@ class Evaluator:
                 if rs_value['type'] == 'timeseries':
 
                     # store results from get function
-                    if key not in self.results:
-                        self.results[key] = {}
+                    if key not in self.store:
+                        self.store[key] = {}
 
                     if start:
                         if type(start) == str:
@@ -479,7 +478,7 @@ class Evaluator:
                             else:
                                 idx_start = self.dates.index(start)
                                 idx_end = self.dates.index(end)
-                                value = value[0] # assume single series
+                                value = value[0]  # assume single series
                                 # TODO: update to accommodate blocks
                                 values = list(value.values())[idx_start:idx_end]
                                 if agg == 'sum':
@@ -501,13 +500,13 @@ class Evaluator:
                         offset_date_as_string = offset_date.to_datetime_string()
 
                         # is the result already available?
-                        result = self.results.get(key, {}).get(offset_date_as_string)
+                        result = self.store.get(key, {}).get(offset_date_as_string)
 
                         if result is None:
 
                             if key == parentkey:
                                 # this is for cases where we are getting from a previous time step in a top-level function
-                                result = self.results[hashkey][offset_timestep - 1]
+                                result = self.hashstore[hashkey][offset_timestep - 1]
                             else:
                                 if flavor == 'pandas':
                                     if has_blocks:
@@ -521,13 +520,13 @@ class Evaluator:
                                         result = value.get(offset_date_as_string) or value.get(0, {}).get(
                                             offset_date_as_string, 0)
 
-                    if date_as_string not in self.results[key]:
-                        self.results[key][date_as_string] = result
+                    if date_as_string not in self.store[key]:
+                        self.store[key][date_as_string] = result
 
 
                 elif rs_value.type == 'array':
 
-                    result = self.results.get(key)
+                    result = self.store.get(key)
 
                     if result is None:
 
@@ -537,7 +536,7 @@ class Evaluator:
                             result = value
 
                         # store results from get function
-                        self.results[key] = result
+                        self.store[key] = result
 
             return result
 

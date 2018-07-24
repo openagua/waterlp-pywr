@@ -69,7 +69,6 @@ def run_scenarios(args, log):
         all_scenarios=network.scenarios,
         network=conn.network,
         template=conn.template,
-        attrs=attrs,
         # date_format=args.hydra_timestep_format,
         date_format='%Y-%m-%d %H:%M:%S',
         args=args,

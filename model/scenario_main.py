@@ -67,15 +67,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     # current_dates = system.dates[0:foresight_periods]
 
     # intialize
-    system.prepare_params()
+    system.initialize(supersubscenario)
 
-    # set up subscenario
-    system.setup_subscenario(supersubscenario)
-
-    # initialize boundary conditions
-    system.update_boundary_conditions(0, system.foresight_periods, scope='model', initialize=True)
-
-    system.init_pyomo_params()
     system.model = create_model(
         name=system.name,
         nodes=list(system.nodes.keys()),
