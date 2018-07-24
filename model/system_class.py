@@ -882,7 +882,13 @@ class WaterSystem(object):
                 res_id = int(res_id)
                 attr_id = int(attr_id)
 
-                tattr = self.conn.tattrs[(res_type, res_id, attr_id)]
+                tattr = self.conn.tattrs.get((res_type, res_id, attr_id))
+                if not tattr:
+                    # Same as previous issue.
+                    # This is because the model assigns all resource attribute possibilities to all resources of like type
+                    # In practice this shouldn't make a difference, but may result in a model larger than desired
+                    # TODO: correct this
+                    continue
                 param_name = get_param_name(res_type, tattr['attr_name'])
 
                 if param_name not in self.params:
