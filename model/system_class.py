@@ -609,6 +609,7 @@ class WaterSystem(object):
             dimension = param['dimension']
             data_type = param['data_type']
             unit = param['unit']
+            attr_id = param['attr_id']
             resource_type = param['resource_type']
             startup_date = self.variables.get('{}StartupDate'.format(resource_type), {}).get(idx, '')
 
@@ -622,8 +623,10 @@ class WaterSystem(object):
             if is_function:
                 self.evaluator.data_type = data_type
                 try:
+                    full_key = (resource_type, resource_id, attr_id, dates_as_string)
                     rc, errormsg, values = self.evaluator.eval_function(func, counter=0, has_blocks=has_blocks)
                     if errormsg:
+                        print(full_key)
                         raise Exception(errormsg)
                 except:
                     raise
@@ -662,20 +665,19 @@ class WaterSystem(object):
                     else:
                         val = vals[datetime]
 
-                    # if is_function:
-                    # TODO: use generic unit converter here (and move to evaluator?)
-                    if dimension == 'Volumetric flow rate':
-                        # if unit == 'ft^3 s^-1':
-                        val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
-                    elif dimension == 'Volume':
-                        if unit == 'ac-ft':
-                            val *= self.ACRE_FEET_TO_VOLUME
-
-                    if scope == 'intermediate' and intermediary:
-                        attr_id = param['attr_id']
+                    if scope == 'intermediary' and intermediary:
                         self.store_value(resource_type, resource_id, attr_id, datetime, val)
 
                     elif scope == 'model' and not intermediary:
+
+                        # only convert if updating the LP model
+                        # TODO: use generic unit converter here (and move to evaluator?)
+                        if dimension == 'Volumetric flow rate':
+                            # if unit == 'ft^3 s^-1':
+                            val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
+                        elif dimension == 'Volume':
+                            if unit == 'ac-ft':
+                                val *= self.ACRE_FEET_TO_VOLUME
 
                         # create key
                         pyomo_key = list(idx) + [i] if type(idx) == tuple else [idx, i]
