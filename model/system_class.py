@@ -62,7 +62,7 @@ def addsubblocks(values, param_name, subblocks):
 
     new_values = {}
 
-    if param_name == 'nodeDemand':
+    if param_name in ['nodeStorageDemand', 'nodeDemand']:
         new_vals = {}
         try:
             for block in values:
@@ -246,7 +246,7 @@ class WaterSystem(object):
 
         self.timeseries = {}
         self.variables = {}
-        self.block_params = ['Demand', 'Priority']
+        self.block_params = ['Storage Demand', 'Demand', 'Priority']
         self.blocks = {'node': {}, 'link': {}, 'network': {}}
         self.store = {}
         self.res_scens = {}
@@ -257,7 +257,7 @@ class WaterSystem(object):
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
 
-        nsubblocks = 5
+        nsubblocks = 1
         self.default_subblocks = list(range(nsubblocks))
 
         # collect source data
@@ -747,25 +747,28 @@ class WaterSystem(object):
             time_idx = type(idx) != int and idx[-1]
         return res_idx, time_idx
 
-    def store_results(self, param, timesteps, tsidx, is_var, include_all=None):
+    def store_results(self, pyomo_param, timesteps, tsidx, is_var, include_all=None):
 
-        selfparam = self.params.get(param.name, {})
-        if not selfparam and param.name not in ['debugLoss', 'debugGain']:
+        param = self.params.get(pyomo_param.name, {})
+        if not param and pyomo_param.name not in ['debugLoss', 'debugGain']:
             return
 
-        resource_type = selfparam.get('resource_type')
-        has_blocks = selfparam.get('attr_name') in self.block_params
-        dimension = selfparam.get('dimension')
-        unit = selfparam.get('unit')
+        resource_type = param['resource_type']
+        has_blocks = param['attr_name'] in self.block_params
+        dimension = param['dimension']
+        unit = param['unit']
+        attr_id = param['attr_id']
 
         # collect to results
-        for idx, p in param.items():
+        for idx, p in pyomo_param.items():
+            if p.value is None:
+                continue
 
-            if param.name in ['debugLoss', 'debugGain']:
+            if pyomo_param.name in ['debugLoss', 'debugGain']:
                 if p.value:
                     res_idx = idx[0]
                     res_name = self.nodes[res_idx]['name']
-                    raise Exception("DEBUG: {} for {} with value {}".format(param.name, res_name, p.value))
+                    raise Exception("DEBUG: {} for {} with value {}".format(pyomo_param.name, res_name, p.value))
                 else:
                     continue
 
@@ -789,7 +792,6 @@ class WaterSystem(object):
                 val /= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
 
             # store in evaluator store
-            attr_id = self.params[param.name]['attr_id']
             if resource_type == 'node':
                 res_id = res_idx
             else:

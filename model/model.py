@@ -72,6 +72,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
     # DECISION VARIABLES (all variables should be prepended with resource type)
 
     m.nodeDelivery = Var(m.Nodes * m.TS, domain=NonNegativeReals)  # delivery to demand nodes
+    m.nodeStorageDelivery = Var(m.Nodes * m.TS, domain=NonNegativeReals)  # delivery to storage nodes
     m.nodeDeliveryDB = Var(m.NodeBlocks * m.TS, domain=NonNegativeReals)  # delivery to demand nodes
     m.linkDelivery = Var(m.Links * m.TS, domain=NonNegativeReals)  # not valued yet; here as a placeholder
     m.linkDeliveryDB = Var(m.LinkBlocks * m.TS, domain=NonNegativeReals)
@@ -181,18 +182,20 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     def NodeDelivery_definition(m, j, t):
         '''Deliveries comprise delivery blocks'''
-        if j in m.Storage | m.DemandNodes | m.FlowRequirement:
+        if j in m.Storage:
+            return m.nodeStorageDelivery[j, t] == sum(m.nodeDeliveryDB[j, b, sb, t] for (b, sb) in nodeBlockLookup(j))
+        elif m.DemandNodes | m.FlowRequirement:
             return m.nodeDelivery[j, t] == sum(m.nodeDeliveryDB[j, b, sb, t] for (b, sb) in nodeBlockLookup(j))
         else:
             return Constraint.Skip
 
-    m.NodeDelivery_definition = Constraint(m.Nodes, m.TS, rule=NodeDelivery_definition)
+    m.NodeStorageDelivery_definition = Constraint(m.Storage, m.TS, rule=NodeDelivery_definition)
+    m.NodeDemandDelivery_definition = Constraint(m.DemandNodes | m.FlowRequirement, m.TS, rule=NodeDelivery_definition)
 
     def NodeDelivery_rule(m, j, t):
         '''Deliveries may not exceed physical conditions.'''
         if j in m.Storage:
-            # delivery cannot exceed storage
-            return m.nodeDelivery[j, t] <= m.nodeStorage[j, t]
+            return m.nodeStorageDelivery[j, t] <= m.nodeStorage[j, t]
         elif j in m.DemandNodes:
             # deliveries to demand nodes (urban, ag, general) must equal actual inflows
             # note the use of local gains & losses: local sources such as precipitation can be included in deliveries
@@ -210,11 +213,10 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     def NodeBlock_rule(m, j, b, sb, t):
         '''Delivery blocks cannot exceed their corresponding demand blocks.
-        By extension, deliveries cannot exceed demands. This does not apply to flow requirements.
+        By extension, deliveries cannot exceed demands.
         '''
-
-        if j in m.FlowRequirement:
-            return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeDemand[j, b, sb, t]
+        if j in m.Storage:
+            return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeStorageDemand[j, b, sb, t]
         else:
             return m.nodeDeliveryDB[j, b, sb, t] <= m.nodeDemand[j, b, sb, t]
 
@@ -273,8 +275,8 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     m.MaximumOutflow = Constraint(m.Reservoir, m.TS, rule=MaxReservoirRelease_rule)
 
-    def ExcessFlowRequirement_definision(m, j, t):
-        return m.nodeInflow
+    # def ExcessFlowRequirement_definition(m, j, t):
+    #     return m.nodeInflow
 
     # def EmptyStorage_definition(m, j, t):
     #     return m.emptyStorage[j, t] == m.nodeStorageCapacity[j, t] - m.nodeStorage[j, t]
@@ -322,8 +324,6 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
         else:
             return summation(m.nodeValueDB, m.nodeDeliveryDB) \
                    - 1000 * summation(m.virtualPrecipGain)
-
-        # return sum((m.nodeValueDB[j,b,t] * m.nodeDeliveryDB[j,b,t]) for (j, b) in m.NodeBlocks for t in m.TS)
 
     m.Objective = Objective(rule=Objective_fn, sense=maximize)
 
