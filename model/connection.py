@@ -48,43 +48,37 @@ class connection(object):
 
         # dictionary for looking up attribute ids
 
-        self.attrs = AttrDict()
-        for tt in self.template.types:
-            res_type = tt.resource_type.lower()
-            if res_type not in self.attrs.keys():
-                self.attrs[res_type] = AttrDict()
-            for ta in tt.typeattrs:
-                self.attrs[res_type][ta.attr_id] = AttrDict({
-                    'name': ta.attr_name,
-                    'dtype': ta.data_type,
-                    'unit': ta.unit,
-                    'dim': ta.dimension,
-                    'is_var': ta.is_var == 'Y'
-                })
-
         # dictionary to store resource attribute ids
         self.resource_attributes = {}
-        self.res_attr_lookup = {'node': {}, 'link': {}}
+        self.res_attr_lookup = {}
         self.attr_ids = {}
         self.raid_to_res_name = {}
         self.node_names = {}
+        self.tattrs = {}
 
-        for n in self.network.nodes:
-            self.node_names[n.id] = n.name
-            for ra in n.attributes:
-                if ra.attr_id in self.attrs.node:
-                    attr_name = self.attrs.node[ra.attr_id]['name']
-                    self.res_attr_lookup['node'][(n.id, attr_name)] = ra.id
-                    self.attr_ids[ra.id] = ra.attr_id
-                    self.raid_to_res_name[ra.id] = n.name
+        ttypes = {tt.id: tt for tt in self.template.types}
 
-        for l in self.network.links:
-            for ra in l.attributes:
-                if ra.attr_id in self.attrs.link:
-                    self.res_attr_lookup['link'][
-                        (l.node_1_id, l.node_2_id, self.attrs.link[ra.attr_id]['name'])] = ra.id
+        def process_resource(resource_type, resource):
+            rtypes = [rt for rt in resource.types if rt.template_id == self.template_id]
+            if rtypes:
+                rtype = rtypes[0]
+            else:
+                return
+            ttype = ttypes[rtype.id]
+            tattrs = {ta.attr_id: ta for ta in ttype.typeattrs}
+            for ra in resource.attributes:
+                if ra.attr_id in tattrs:
+                    key = (resource_type, resource.id, ra.attr_id)
+                    self.tattrs[key] = tattrs[ra.attr_id]
+                    self.res_attr_lookup[key] = ra.id
                     self.attr_ids[ra.id] = ra.attr_id
-                    self.raid_to_res_name[ra.id] = l.name
+                    self.raid_to_res_name[ra.id] = resource.name
+
+        process_resource('network', self.network)
+        for node in self.network.nodes:
+            process_resource('node', node)
+        for link in self.network.links:
+            process_resource('link', link)
 
     def call(self, func, args):
 

@@ -57,26 +57,6 @@ def perturb(val, variation):
         return val
 
 
-# class Recorder(object):
-#     def __init__(self, flavor, host, port, database, username=None, password=None):
-#
-#         self.flavor = flavor
-#         if flavor == 'mongodb':
-#             client = MongoClient(host, port)
-#             db = client[database]
-#             self.results_collection = db['results']
-#
-#     def record(self, records):
-#
-#         if self.flavor == 'mongodb':
-#             if type(records) != list:
-#                 records = list(records)
-#             try:
-#                 self.results_collection.insert_many(records)
-#             except:
-#                 pass
-
-
 def addsubblocks(values, param_name, subblocks):
     nsubblocks = len(subblocks)
 
@@ -106,7 +86,7 @@ def addsubblocks(values, param_name, subblocks):
 
 class WaterSystem(object):
 
-    def __init__(self, conn, name, network, all_scenarios, template, attrs, args, settings=None, date_format='iso',
+    def __init__(self, conn, name, network, all_scenarios, template, args, settings=None, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
         self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
@@ -117,7 +97,6 @@ class WaterSystem(object):
         self.name = name
         self.scenario = scenario
         self.template = template
-        self.attrs = attrs
         self.reporter = reporter
         self.args = args
         self.date_format = date_format
@@ -269,7 +248,7 @@ class WaterSystem(object):
         self.variables = {}
         self.block_params = ['Demand', 'Priority']
         self.blocks = {'node': {}, 'link': {}, 'network': {}}
-        self.results = {}
+        self.store = {}
         self.res_scens = {}
 
         self.evaluator.block_params = self.block_params
@@ -437,6 +416,25 @@ class WaterSystem(object):
                     blocks = blocks if len(blocks) > len(type_blocks[idx]) else type_blocks[idx]
                 self.blocks[resource_type][idx] = blocks
 
+    def initialize(self, supersubscenario):
+        """A wrapper for all initialization steps."""
+
+        # add a store
+        self.store = {}
+        self.evaluator.store = self.store
+
+        # prepare parameters
+        self.prepare_params()
+
+        # set up subscenario
+        self.setup_subscenario(supersubscenario)
+
+        # initialize boundary conditions
+        self.update_boundary_conditions(0, self.foresight_periods, scope='model', initialize=True)
+
+        # prepare pyomo parameters
+        self.init_pyomo_params()
+
     def prepare_params(self):
         """
         Declare parameters, based on the template type.
@@ -491,9 +489,10 @@ class WaterSystem(object):
             }
 
         for variation_set in variation_sets:
-            for (resource_type, resource_id, attr_id), variation in variation_set['variations'].items():
-                attr = self.conn.attrs[resource_type][attr_id]
-                param_name = get_param_name(resource_type, attr['name'])
+            for key, variation in variation_set['variations'].items():
+                (resource_type, resource_id, attr_id) = key
+                tattr = self.conn.tattrs[key]
+                param_name = get_param_name(resource_type, tattr['attr_name'])
                 if resource_type == 'node':
                     idx = resource_id
                 elif resource_type == 'link':
@@ -610,6 +609,7 @@ class WaterSystem(object):
             dimension = param['dimension']
             data_type = param['data_type']
             unit = param['unit']
+            attr_id = param['attr_id']
             resource_type = param['resource_type']
             startup_date = self.variables.get('{}StartupDate'.format(resource_type), {}).get(idx, '')
 
@@ -623,8 +623,10 @@ class WaterSystem(object):
             if is_function:
                 self.evaluator.data_type = data_type
                 try:
+                    full_key = (resource_type, resource_id, attr_id, dates_as_string)
                     rc, errormsg, values = self.evaluator.eval_function(func, counter=0, has_blocks=has_blocks)
                     if errormsg:
+                        print(full_key)
                         raise Exception(errormsg)
                 except:
                     raise
@@ -663,20 +665,19 @@ class WaterSystem(object):
                     else:
                         val = vals[datetime]
 
-                    # if is_function:
-                    # TODO: use generic unit converter here (and move to evaluator?)
-                    if dimension == 'Volumetric flow rate':
-                        # if unit == 'ft^3 s^-1':
-                        val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
-                    elif dimension == 'Volume':
-                        if unit == 'ac-ft':
-                            val *= self.ACRE_FEET_TO_VOLUME
-
-                    if scope == 'intermediate' and intermediary:
-                        attr_id = param['attr_id']
-                        self.store(resource_type, resource_id, attr_id, datetime, val)
+                    if scope == 'intermediary' and intermediary:
+                        self.store_value(resource_type, resource_id, attr_id, datetime, val)
 
                     elif scope == 'model' and not intermediary:
+
+                        # only convert if updating the LP model
+                        # TODO: use generic unit converter here (and move to evaluator?)
+                        if dimension == 'Volumetric flow rate':
+                            # if unit == 'ft^3 s^-1':
+                            val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
+                        elif dimension == 'Volume':
+                            if unit == 'ac-ft':
+                                val *= self.ACRE_FEET_TO_VOLUME
 
                         # create key
                         pyomo_key = list(idx) + [i] if type(idx) == tuple else [idx, i]
@@ -752,9 +753,6 @@ class WaterSystem(object):
         if not selfparam and param.name not in ['debugLoss', 'debugGain']:
             return
 
-        if tsidx == 0:
-            self.results[param.name] = {}
-
         resource_type = selfparam.get('resource_type')
         has_blocks = selfparam.get('attr_name') in self.block_params
         dimension = selfparam.get('dimension')
@@ -776,9 +774,6 @@ class WaterSystem(object):
             if not (time_idx is not False and time_idx == 0 or include_all):  # index[-1] is time
                 continue
 
-            if tsidx == 0 and res_idx not in self.results[param.name]:  # idx[:-1] is node/link + block, if any
-                self.results[param.name][res_idx] = {}
-
             timestamp = timesteps[time_idx]
 
             # the purpose of this addition is to aggregate blocks, if any, thus eliminating the need for Pandas
@@ -793,34 +788,32 @@ class WaterSystem(object):
                 # elif unit == 'ft^3 s^-1':
                 val /= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
 
-            if has_blocks:
-                self.results[param.name][res_idx][timestamp] = \
-                    val + self.results[param.name][res_idx].get(timestamp, 0)
+            # store in evaluator store
+            attr_id = self.params[param.name]['attr_id']
+            if resource_type == 'node':
+                res_id = res_idx
             else:
-                # TODO: combine self.results and self.evaluator results. This takes up a lot of memory!
-                self.results[param.name][res_idx][timestamp] = val
-
-                # store in evaluator store
-                attr_id = self.params[param.name]['attr_id']
-                if resource_type == 'node':
-                    res_id = res_idx
-                else:
-                    res_id = self.links[res_idx]['id']
-                self.store(resource_type, res_id, attr_id, timestamp, val)
+                res_id = self.links[res_idx]['id']
+            self.store_value(resource_type, res_id, attr_id, timestamp, val, has_blocks=has_blocks)
 
         return
 
-    def store(self, ref_key, ref_id, attr_id, timestamp, val):
+    def store_value(self, ref_key, ref_id, attr_id, timestamp, val, has_blocks=False):
 
         # add new resource scenario if it doesn't exist
         key = (ref_key, ref_id, attr_id)
         try:
             if key not in self.evaluator.rs_values:
-                attr = self.conn.attrs[ref_key][attr_id]
+                tattr = self.conn.tattrs.get(key)
+                if not tattr:
+                    # This is because the model assigns all resource attribute possibilities to all resources of like type
+                    # In practice this shouldn't make a difference, but may result in a model larger than desired
+                    # TODO: correct this
+                    return
                 self.evaluator.rs_values[key] = {
-                    'type': attr['dtype'],
-                    'unit': attr['unit'],
-                    'dimension': attr['dim'],
+                    'type': tattr['data_type'],
+                    'unit': tattr['unit'],
+                    'dimension': tattr['dimension'],
                     'value': None
                 }
         except:
@@ -828,9 +821,11 @@ class WaterSystem(object):
 
         # store value
         key_string = '{ref_key}/{ref_id}/{attr_id}'.format(ref_key=ref_key, ref_id=ref_id, attr_id=attr_id)
-        if key_string not in self.evaluator.results:
-            self.evaluator.results[key_string] = {}
-        self.evaluator.results[key_string][timestamp] = val
+        if key_string not in self.store:
+            self.store[key_string] = {}
+        if has_blocks:
+            val += self.store[key_string].get(timestamp, 0)
+        self.store[key_string][timestamp] = val
 
     def save_results(self):
 
@@ -881,93 +876,76 @@ class WaterSystem(object):
         res_names = {}
 
         try:
-            count = 0
-            pcount = 1
-            nparams = len(self.results)
-            for param_name, param_values in self.results.items():
-                # if self.args.debug and pcount == 5:
-                # break
-                pcount += 1
+            n = 0
+            N = len(self.store)
+            for key, value in self.store.items():
+                n += 1
+                res_type, res_id, attr_id = key.split('/')
+                res_id = int(res_id)
+                attr_id = int(attr_id)
+
+                tattr = self.conn.tattrs.get((res_type, res_id, attr_id))
+                if not tattr:
+                    # Same as previous issue.
+                    # This is because the model assigns all resource attribute possibilities to all resources of like type
+                    # In practice this shouldn't make a difference, but may result in a model larger than desired
+                    # TODO: correct this
+                    continue
+                param_name = get_param_name(res_type, tattr['attr_name'])
+
                 if param_name not in self.params:
                     continue  # it's probably an internal variable/parameter
-                resource_type = self.params[param_name]['resource_type']
-                param = self.params[param_name]
-                attr_id = param['attr_id']
-                attr = self.conn.attrs[resource_type][attr_id]
 
-                # reorganize values as stored by Pyomo to resource attributes
-                # pid = Pyomo resource attribute id
-                dataset_values = {}
-                for idx, values in param_values.items():
-                    idx = type(idx) == tuple and list(idx) or [idx]  # needed to concatenate with the attribute name
-                    if resource_type == 'node':
-                        n = 1
-                        pid = (idx[0], param['attr_name'])
-                        res_name = self.nodes[pid[0]]['name']
-                    elif resource_type == 'link':
-                        n = 2
-                        pid = (idx[0], idx[1], param['attr_name'])
-                        res_name = self.links[pid[:n]]['name']
-                    else:
-                        # TODO: Include Network resource data here
-                        continue
+                # define the dataset value
+                try:
+                    value = json.dumps({'0': OrderedDict(sorted(value.items()))})
+                except:
+                    continue
 
-                    if pid not in self.conn.res_attr_lookup[resource_type]:
-                        continue
-
-                    # block = 0 if len(idx)==n else idx[n]
-                    # if pid not in dataset_values:
-                    # dataset_values[pid] = {}
-                    # dataset_values[pid][str(block)] = values
-                    dataset_values[pid] = values
-
-                    if pid not in res_names:
-                        res_names[pid] = res_name
-
-                # create datasets from values
-                for pid, dataset_value in dataset_values.items():
-
-                    count += 1
-
-                    # define the dataset value
-                    # first, aggregate blocks
-                    # df = pd.DataFrame(data=dataset_value).sum(axis=1)
-                    # df = pd.DataFrame(dataset_value)
-                    value = json.dumps({'0': OrderedDict(sorted(dataset_value.items()))})
-
-                    # create the resource scenario (dataset attached to a specific resource attribute)
-                    rs = {
-                        'resource_attr_id': self.conn.res_attr_lookup[resource_type][pid],
-                        'value': {
-                            'type': attr['dtype'],
-                            'name': '{} - {} - {} [{}]'.format(self.network.name, res_names[pid], attr['name'],
-                                                               self.scenario.name),
-                            'unit': attr['unit'],
-                            'dimension': attr['dim'],
-                            'value': value
-                        }
+                # create the resource scenario (dataset attached to a specific resource attribute)
+                res_idx = (res_type, res_id, attr_id)
+                res_attr_id = self.conn.res_attr_lookup.get(res_idx)
+                if not res_attr_id:
+                    continue
+                if res_type == 'network':
+                    res_scen_name = '{} - {} [{}]'.format(self.network.name, tattr['attr_name'], self.scenario.name)
+                else:
+                    res_scen_name = '{} - {} - {} [{}]'.format(self.network.name,
+                                                               self.conn.raid_to_res_name[res_attr_id],
+                                                               tattr['attr_name'],
+                                                               self.scenario.name)
+                rs = {
+                    'resource_attr_id': res_attr_id,
+                    'value': {
+                        'type': tattr['data_type'],
+                        'name': res_scen_name,
+                        'unit': tattr['unit'],
+                        'dimension': tattr['dimension'],
+                        'value': value
                     }
-                    res_scens.append(rs)
-                    mb += len(value.encode()) * 1.1 / 1e6  # large factor of safety
+                }
+                res_scens.append(rs)
+                mb += len(value.encode()) * 1.1 / 1e6  # large factor of safety
 
-                    if mb > 10 or count % 100 == 0:
-                        result_scenario['resourcescenarios'] = res_scens[:-1]
-                        resp = self.conn.dump_results(result_scenario)
-                        # if count % 20 == 0 or pcount == nparams:
-                        if self.scenario.reporter:
-                            self.scenario.reporter.report(
-                                action='save',
-                                saved=round(count / (self.nparams + self.nvars) * 100))
+                if mb > 10 or n % 100 == 0:
+                    result_scenario['resourcescenarios'] = res_scens[:-1]
+                    resp = self.conn.dump_results(result_scenario)
+                    # if count % 20 == 0 or pcount == nparams:
+                    if self.scenario.reporter:
+                        self.scenario.reporter.report(
+                            action='save',
+                            saved=round(n / N * 100)
+                        )
 
-                        # purge just-uploaded scenarios
-                        res_scens = res_scens[-1:]
-                        mb = 0
+                    # purge just-uploaded scenarios
+                    res_scens = res_scens[-1:]
+                    mb = 0
 
             # upload the last remaining resource scenarios
             result_scenario['resourcescenarios'] = res_scens
             resp = self.conn.dump_results(result_scenario)
             if self.scenario.reporter:
-                self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
+                self.scenario.reporter.report(action='save', saved=round(n / N * 100))
 
         except:
             msg = 'ERROR: Results could not be saved.'
@@ -1013,7 +991,8 @@ class WaterSystem(object):
                 resource_type = self.params[param_name]['resource_type']
                 ta = self.params[param_name]['type_attr']
                 attr_id = ta['attr_id']
-                attr = self.conn.attrs[resource_type][attr_id]
+
+                tattr = self.conn.tattrs[resource_type][attr_id]
 
                 # reorganize values as stored by Pyomo to resource attributes
                 # pid = Pyomo resource attribute id
