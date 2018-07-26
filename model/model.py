@@ -335,9 +335,9 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
             return summation(m.nodeValueDB, m.nodeDeliveryDB) \
                    - 1000 * summation(m.virtualPrecipGain) \
                    - 1 * summation(m.emptyStorage) \
-                   - 10 * summation(m.floodStorage)
-            # + 1 * summation(m.nodeOutflow)
-            # - 1 * summation(m.nodeSpill)
+                   - 10 * summation(m.floodStorage) \
+                   - 5 * summation(m.nodeSpill)
+                    # + 1 * summation(m.nodeOutflow)
 
     m.Objective = Objective(rule=Objective_fn, sense=maximize)
 
