@@ -257,7 +257,7 @@ class WaterSystem(object):
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
 
-        nsubblocks = 1
+        nsubblocks = 5
         self.default_subblocks = list(range(nsubblocks))
 
         # collect source data
