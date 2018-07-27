@@ -106,23 +106,6 @@ class WaterSystem(object):
 
         self.foresight = args.foresight  # pending further development
 
-        # self.evaluator = Evaluator(self.conn, settings=settings, date_format=date_format)
-        # self.dates = self.evaluator.dates
-        # self.dates_as_string = self.evaluator.dates_as_string
-        #
-        # # timestep deltas
-        # self.tsdeltas = {}
-        #
-        # # user the dates in evaluator because we've already incurred the expense of parsing the date.
-        # self.tsdeltas = dict((self.dates_as_string[i], self.evaluator.dates[i + 1] - ts) for i, ts in
-        #                      enumerate(self.evaluator.dates[:-1]))
-        # self.tsdeltas[self.evaluator.dates_as_string[-1]] = self.tsdeltas[
-        #     self.evaluator.dates_as_string[-2]]  # TODO: fix this
-
-        # prepare data - we could move some of this to elsewhere
-
-        template_id = template.id
-
         # extract info about nodes & links
         self.network = network
         self.nodes = {}
@@ -321,6 +304,7 @@ class WaterSystem(object):
                     idx = self.link_nodes[resource_id]
                 else:
                     resource_type = 'network'
+                    resource_id = self.network.id
                     idx = -1
 
                 # identify as function or not
@@ -328,6 +312,7 @@ class WaterSystem(object):
 
                 # get attr name
                 attr_name = res_attr['attr_name']
+                attr_id = res_attr['attr_id']
 
                 # get data type
                 data_type = rs.value.type
@@ -342,6 +327,8 @@ class WaterSystem(object):
 
                 param_name = get_param_name(resource_type, attr_name)
 
+                parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
+
                 # TODO: get fill_value from dataset/ttype (this should be user-specified)
                 self.evaluator.data_type = data_type
                 value = None
@@ -353,7 +340,8 @@ class WaterSystem(object):
                             do_eval=False,
                             fill_value=0,
                             has_blocks=has_blocks,
-                            date_format=self.date_format
+                            date_format=self.date_format,
+                            parentkey=parentkey
                         )
                 except Exception as e:
                     raise
@@ -409,6 +397,8 @@ class WaterSystem(object):
                         }
                     except:
                         raise
+
+                self.store[parentkey] = value
 
                 # update resource blocks to match max of this type block and previous type blocks
                 type_blocks = self.blocks[resource_type]
@@ -512,7 +502,7 @@ class WaterSystem(object):
                                                                              variation)
 
                 else:  # we need to add the variable to account for the variation
-                    data_type = attr['dtype']
+                    data_type = tattr['data_type']
                     if data_type == 'scalar':
                         if param_name not in self.variables:
                             self.variables[param_name] = {}
@@ -523,7 +513,7 @@ class WaterSystem(object):
                             self.variables[param_name] = {}
                         self.timeseries[param_name][idx] = {
                             'values': perturb(self.evaluator.default_timeseries.copy(), variation),
-                            'dimension': attr['dim']
+                            'dimension': tattr['dimension']
                         }
 
     def init_pyomo_params(self):
@@ -626,7 +616,6 @@ class WaterSystem(object):
                     full_key = (resource_type, resource_id, attr_id, dates_as_string)
                     rc, errormsg, values = self.evaluator.eval_function(func, counter=0, has_blocks=has_blocks)
                     if errormsg:
-                        print(full_key)
                         raise Exception(errormsg)
                 except:
                     raise
@@ -909,13 +898,18 @@ class WaterSystem(object):
                 res_attr_id = self.conn.res_attr_lookup.get(res_idx)
                 if not res_attr_id:
                     continue
+                resource_name = self.conn.raid_to_res_name[res_attr_id]
                 if res_type == 'network':
                     res_scen_name = '{} - {} [{}]'.format(self.network.name, tattr['attr_name'], self.scenario.name)
                 else:
                     res_scen_name = '{} - {} - {} [{}]'.format(self.network.name,
-                                                               self.conn.raid_to_res_name[res_attr_id],
+                                                               resource_name,
                                                                tattr['attr_name'],
                                                                self.scenario.name)
+
+                if tattr['dimension'] == 'Temperature':
+                    continue # TODO: fix this!!!
+
                 rs = {
                     'resource_attr_id': res_attr_id,
                     'value': {
@@ -932,7 +926,8 @@ class WaterSystem(object):
                 if mb > 10 or n % 100 == 0:
                     result_scenario['resourcescenarios'] = res_scens[:-1]
                     resp = self.conn.dump_results(result_scenario)
-                    # if count % 20 == 0 or pcount == nparams:
+                    if 'id' not in resp:
+                        raise Exception('Error saving data')
                     if self.scenario.reporter:
                         self.scenario.reporter.report(
                             action='save',

@@ -265,7 +265,7 @@ class Evaluator:
         self.store = {}
         self.hashstore = {}
 
-    def eval_data(self, value, func=None, do_eval=False, data_type=None, flavor=None, counter=0, fill_value=None,
+    def eval_data(self, value, func=None, do_eval=False, flavor=None, counter=0, fill_value=None,
                   date_format='iso', has_blocks=False, parentkey=None):
 
         try:
