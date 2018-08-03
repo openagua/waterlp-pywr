@@ -70,13 +70,12 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     system.initialize(supersubscenario)
 
     system.model = create_model(
-        name=system.name,
-        nodes=list(system.nodes.keys()),
-        links=list(system.links.keys()),
-        types=system.ttypes,
-        ts_idx=system.ts_idx,
+        network=system.network,
+        template=system.template,
+        start=system.scenario.start_time,
+        end=system.scenario.end_time,
+        ts=system.scenario.time_step,
         params=system.params,
-        blocks=system.blocks,
         debug_gain=args.debug_gain,
         debug_loss=args.debug_loss
     )
