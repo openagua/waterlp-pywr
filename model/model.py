@@ -285,7 +285,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
     def EmptyStorage_definition(m, j, t):
         return m.emptyStorage[j, t] == m.nodeStorageCapacity[j, t] - m.nodeStorage[j, t]
 
-    m.EmptyStorageDefinition = Constraint(m.Storage, m.TS, rule=EmptyStorage_definition)
+    m.EmptyStorageDefinition = Constraint(m.Reservoir, m.TS, rule=EmptyStorage_definition)
 
     def FloodZone_definition(m, j, t):
         '''Stored flood is storage less delivery. By definition, storage equals delivery below the flood zone.'''
