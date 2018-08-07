@@ -19,6 +19,7 @@ class Scenario(object):
         self.reporter = None
         self.total_steps = 1
         self.finished = 0
+        self.current_date = None
 
         self.start_time = '0'
         self.end_time = '9'
@@ -107,23 +108,25 @@ class Scenario(object):
         if action:
             payload.update({
                 'action': action,
-                'status': statuses.get(action, 'unknown')
+                'status': statuses.get(action, 'unknown'),
+                'date': self.current_date,
+                'progress': self.finished / self.total_steps * 100,
             })
             if action == 'start':
                 payload.update({
-                    'progress': 0,
+                    # 'progress': 0,
                 })
             elif action == 'step':
                 payload.update({
-                    'progress': self.finished / self.total_steps * 100
+
                 })
             elif action == 'save':
                 payload.update({
-                    'progress': 100,
+                    # 'progress': self.finished / self.total_steps * 100,
                 })
             elif action == 'done':
                 payload.update({
-                    'progress': 100,
+                    # 'progress': self.finished / self.total_steps * 100,
                     'saved': 100,
                 })
         return payload

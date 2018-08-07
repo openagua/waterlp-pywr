@@ -416,133 +416,138 @@ class Evaluator:
         This is used to get data from another variable, or another time step, possibly aggregated
         '''
 
-        hashkey = kwargs.get('hashkey')
-        parentkey = kwargs.get('parentkey')
-        date = kwargs.get('date')
-        date_as_string = date.to_datetime_string()
-        counter = kwargs.get('counter')
-        offset = kwargs.get('offset')
-        timestep = kwargs.get('timestep')
-        start = kwargs.get('start')
-        end = kwargs.get('end', date)
-        agg = kwargs.get('agg', 'mean')
+        try:
 
-        parts = key.split('/')
-        ref_key, ref_id, attr_id = parts
-        ref_id = int(ref_id)
-        attr_id = int(attr_id)
+            hashkey = kwargs.get('hashkey')
+            parentkey = kwargs.get('parentkey')
+            date = kwargs.get('date')
+            date_as_string = date.to_datetime_string()
+            counter = kwargs.get('counter')
+            offset = kwargs.get('offset')
+            timestep = kwargs.get('timestep')
+            start = kwargs.get('start')
+            end = kwargs.get('end', date)
+            agg = kwargs.get('agg', 'mean')
 
-        result = None
+            parts = key.split('/')
+            ref_key, ref_id, attr_id = parts
+            ref_id = int(ref_id)
+            attr_id = int(attr_id)
 
-        rs_value = self.rs_values.get((ref_key, ref_id, attr_id))
+            result = None
 
-        # calculate offset
-        if offset:
-            offset_timestep = self.dates.index(date) + offset + 1
-        else:
-            offset_timestep = timestep
+            rs_value = self.rs_values.get((ref_key, ref_id, attr_id))
 
-        if rs_value['type'] == 'timeseries':
-            if key not in self.store:
-                self.store[key] = {}
-            offset_date = self.dates[offset_timestep - 1]
-            offset_date_as_string = offset_date.to_datetime_string()
+            # calculate offset
+            if offset:
+                offset_timestep = self.dates.index(date) + offset + 1
+            else:
+                offset_timestep = timestep
 
-            result = self.store[key].get(offset_date_as_string)
-
-        flavor = kwargs.get('flavor')
-        tattr = self.conn.tattrs[(ref_key, ref_id, attr_id)]
-        has_blocks = tattr['attr_name'] in self.block_params
-        # need to evaluate the data anew only as needed
-        # tracking parent key prevents stack overflow
-        if key != parentkey and rs_value is not None \
-                and rs_value['value'] is not None and \
-                (not result or start):
-            eval_data = self.eval_data(
-                value=rs_value,
-                do_eval=False,
-                flavor=flavor,
-                counter=counter,
-                parentkey=key,
-                has_blocks=has_blocks,
-                date_format='%Y-%m-%d %H:%M:%S'
-            )
-
-            value = eval_data
-        else:
-            value = None
-
-        result = value
-
-        if self.data_type == 'timeseries':
             if rs_value['type'] == 'timeseries':
-
-                # store results from get function
                 if key not in self.store:
                     self.store[key] = {}
+                offset_date = self.dates[offset_timestep - 1]
+                offset_date_as_string = offset_date.to_datetime_string()
 
-                if start:
-                    if type(start) == str:
-                        start = pendulum.parse(start)
-                    if type(end) == str:
-                        end = pendulum.parse(end)
+                result = self.store[key].get(offset_date_as_string)
 
-                    if key != parentkey:
-                        if flavor == 'pandas':
-                            result = value.loc[start.to_datetime_string():end.to_datetime_string()].agg(agg)[0]
+            flavor = kwargs.get('flavor')
+            tattr = self.conn.tattrs[(ref_key, ref_id, attr_id)]
+            has_blocks = tattr['attr_name'] in self.block_params
+            # need to evaluate the data anew only as needed
+            # tracking parent key prevents stack overflow
+            if key != parentkey and rs_value is not None \
+                    and rs_value['value'] is not None and \
+                    (not result or start):
+                eval_data = self.eval_data(
+                    value=rs_value,
+                    do_eval=False,
+                    flavor=flavor,
+                    counter=counter,
+                    parentkey=key,
+                    has_blocks=has_blocks,
+                    date_format='%Y-%m-%d %H:%M:%S'
+                )
+
+                value = eval_data
+            else:
+                value = None
+
+            result = value
+
+            if self.data_type == 'timeseries':
+                if rs_value['type'] == 'timeseries':
+
+                    # store results from get function
+                    if key not in self.store:
+                        self.store[key] = {}
+
+                    if start:
+                        if type(start) == str:
+                            start = pendulum.parse(start)
+                        if type(end) == str:
+                            end = pendulum.parse(end)
+
+                        if key != parentkey:
+                            if flavor == 'pandas':
+                                result = value.loc[start.to_datetime_string():end.to_datetime_string()].agg(agg)[0]
+                            else:
+                                idx_start = self.dates.index(start)
+                                idx_end = self.dates.index(end)
+                                value = value[0]  # assume single series
+                                # TODO: update to accommodate blocks
+                                values = list(value.values())[idx_start:idx_end]
+                                if agg == 'sum':
+                                    result = sum(values)
+                                elif agg == 'mean':
+                                    result = sum(values) / len(values)
+
                         else:
-                            idx_start = self.dates.index(start)
-                            idx_end = self.dates.index(end)
-                            value = value[0]  # assume single series
-                            # TODO: update to accommodate blocks
-                            values = list(value.values())[idx_start:idx_end]
-                            if agg == 'sum':
-                                result = sum(values)
-                            elif agg == 'mean':
-                                result = sum(values) / len(values)
+                            result = None
 
                     else:
-                        result = None
 
-                else:
+                        # is the result already available?
+                        result = self.store[key].get(offset_date_as_string)
 
-                    # is the result already available?
-                    result = self.store[key].get(offset_date_as_string)
+                        if result is None:
+
+                            if key == parentkey:
+                                # this is for cases where we are getting from a previous time step in a top-level function
+                                result = self.hashstore[hashkey][offset_timestep - 1]
+                            else:
+                                if flavor == 'pandas':
+                                    if has_blocks:
+                                        result = value.loc[offset_date_as_string]
+                                    else:
+                                        result = value.loc[offset_date_as_string][0]
+                                else:
+                                    if has_blocks:
+                                        result = {c: value[c][offset_date_as_string] for c in value.keys()}
+                                    else:
+                                        result = value.get(offset_date_as_string) or value.get(0, {}).get(
+                                            offset_date_as_string, 0)
+
+                    if date_as_string not in self.store[key]:
+                        self.store[key][date_as_string] = result
+
+
+                elif rs_value.type == 'array':
+
+                    result = self.store.get(key)
 
                     if result is None:
 
-                        if key == parentkey:
-                            # this is for cases where we are getting from a previous time step in a top-level function
-                            result = self.hashstore[hashkey][offset_timestep - 1]
+                        if flavor == 'pandas':
+                            result = pd.DataFrame(value)
                         else:
-                            if flavor == 'pandas':
-                                if has_blocks:
-                                    result = value.loc[offset_date_as_string]
-                                else:
-                                    result = value.loc[offset_date_as_string][0]
-                            else:
-                                if has_blocks:
-                                    result = {c: value[c][offset_date_as_string] for c in value.keys()}
-                                else:
-                                    result = value.get(offset_date_as_string) or value.get(0, {}).get(
-                                        offset_date_as_string, 0)
+                            result = value
 
-                if date_as_string not in self.store[key]:
-                    self.store[key][date_as_string] = result
+                        # store results from get function
+                        self.store[key] = result
 
+            return result
 
-            elif rs_value.type == 'array':
-
-                result = self.store.get(key)
-
-                if result is None:
-
-                    if flavor == 'pandas':
-                        result = pd.DataFrame(value)
-                    else:
-                        result = value
-
-                    # store results from get function
-                    self.store[key] = result
-
-        return result
+        except:
+            raise
