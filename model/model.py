@@ -318,26 +318,16 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     def Objective_fn(m):
         # Link demand / value not yet implemented
-        if debug_gain and debug_loss:
-            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
+
+        fn = summation(m.nodeValueDB, m.nodeDeliveryDB) \
                    - 1000 * summation(m.virtualPrecipGain) \
-                   - 1000 * summation(m.debugGain) \
-                   - 1000 * summation(m.debugLoss)
-        elif debug_gain:
-            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
-                   - 1000 * summation(m.virtualPrecipGain) \
-                   - 1000 * summation(m.debugGain)
-        elif debug_loss:
-            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
-                   - 1000 * summation(m.virtualPrecipGain) \
-                   - 1000 * summation(m.debugLoss)
-        else:
-            return summation(m.nodeValueDB, m.nodeDeliveryDB) \
-                   - 1000 * summation(m.virtualPrecipGain) \
-                   - 1 * summation(m.emptyStorage) \
                    - 10 * summation(m.floodStorage) \
-                   - 5 * summation(m.nodeSpill)
-                    # + 1 * summation(m.nodeOutflow)
+                   - 5 * summation(m.nodeSpill) \
+                   - 1 * summation(m.emptyStorage)
+        fn_debug_gain = - 1000 * summation(m.debugGain) if debug_gain else 0
+        fn_debug_loss = - 1000 * summation(m.debugLoss) if debug_loss else 0
+
+        return fn + fn_debug_gain + fn_debug_loss
 
     m.Objective = Objective(rule=Objective_fn, sense=maximize)
 

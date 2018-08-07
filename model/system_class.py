@@ -90,7 +90,7 @@ class WaterSystem(object):
                  session=None, reporter=None, scenario=None):
 
         self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
-        self.ACRE_FEET_TO_VOLUME = 43559.9 / 1e6 * 1e3  # NOTE: model units are TAF, not AF
+        self.ACRE_FEET_TO_VOLUME = 43560 / 1e6 * 1e3  # NOTE: model units are TAF, not AF
 
         self.conn = conn
         self.session = session
@@ -543,8 +543,8 @@ class WaterSystem(object):
                     param_definition = 'm.{resource_type}s'
 
                     if unit == 'ac-ft':
-                        initial_values = {key: value * self.ACRE_FEET_TO_VOLUME for (key, value) in
-                                          initial_values.items()}
+                        initial_values \
+                            = {key: value * self.ACRE_FEET_TO_VOLUME for (key, value) in initial_values.items()}
 
                 elif data_type == 'timeseries':
                     if attr_name in self.block_params:
@@ -739,20 +739,23 @@ class WaterSystem(object):
     def store_results(self, pyomo_param, timesteps, tsidx, is_var, include_all=None):
 
         param = self.params.get(pyomo_param.name, {})
-        if not param and pyomo_param.name not in ['debugLoss', 'debugGain']:
+
+        # debug gain and debug loss should cause an exception not a return
+        if not param and pyomo_param.name not in ['debugGain', 'debugLoss']:
             return
 
-        resource_type = param['resource_type']
-        has_blocks = param['attr_name'] in self.block_params
-        dimension = param['dimension']
-        unit = param['unit']
-        attr_id = param['attr_id']
+        resource_type = param.get('resource_type')
+        has_blocks = param.get('attr_name') in self.block_params
+        dimension = param.get('dimension')
+        unit = param.get('unit')
+        attr_id = param.get('attr_id')
 
         # collect to results
         for idx, p in pyomo_param.items():
-            if p.value is None:
+            if p is None:
                 continue
 
+            # debug gain / loss
             if pyomo_param.name in ['debugLoss', 'debugGain']:
                 if p.value:
                     res_idx = idx[0]
@@ -771,7 +774,7 @@ class WaterSystem(object):
             # the purpose of this addition is to aggregate blocks, if any, thus eliminating the need for Pandas
             # on the other hand, it should be checked which is faster: Pandas group_by or simple addition here
 
-            val = 0 or round(p.value, 6)
+            val = 0 if not p.value else round(p.value, 6)
 
             if dimension == 'Volume':
                 if unit == 'ac-ft':

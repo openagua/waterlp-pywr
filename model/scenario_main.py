@@ -25,8 +25,7 @@ def run_scenario(supersubscenario, args=None, verbose=False):
         post_reporter.is_main_reporter = True
         reporter = post_reporter
     elif args.message_protocol == 'ably':  # i.e. www.ably.io
-        ably_reporter = AblyReporter(args, post_reporter=post_reporter)
-        reporter = ably_reporter
+        reporter = AblyReporter(args, post_reporter=post_reporter)
 
     if reporter:
         reporter.updater = system.scenario.update_payload
@@ -143,6 +142,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         system.instance.solutions.load_from(results)
 
         system.scenario.finished += 1
+        system.scenario.current_date = current_dates_as_string[0]
 
         if system.scenario.reporter:
             system.scenario.reporter.report(action='step')
@@ -156,7 +156,16 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
                 system.update_boundary_conditions(ts_next, ts_next + system.foresight_periods, 'model')
                 system.update_internal_params()  # update internal parameters that depend on user-defined variables
             except:
-                raise
+                # we can still save results to-date
+                system.save_results()
+                msg = 'ERROR: Something went wrong at step {} of {} ({}). There is something wrong with the model. Results to-date have been saved'.format(
+                    current_step, total_steps, current_dates[0]
+                )
+                print(msg)
+                if system.scenario.reporter:
+                    system.scenario.reporter.report(action='error', message=msg)
+
+                raise Exception(msg)
             system.instance.preprocess()
 
         else:
