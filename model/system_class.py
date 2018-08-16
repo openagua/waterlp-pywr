@@ -90,7 +90,7 @@ class WaterSystem(object):
                  session=None, reporter=None, scenario=None):
 
         self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
-        self.ACRE_FEET_TO_VOLUME = 43560 / 1e6 * 1e3  # NOTE: model units are TAF, not AF
+        self.ACRE_FEET_TO_VOLUME = 1e3 * 43560 / 1e6  # NOTE: model units are TAF, not AF
 
         self.conn = conn
         self.session = session
@@ -663,7 +663,7 @@ class WaterSystem(object):
                         # TODO: use generic unit converter here (and move to evaluator?)
                         if dimension == 'Volumetric flow rate':
                             # if unit == 'ft^3 s^-1':
-                            val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
+                            val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
                         elif dimension == 'Volume':
                             if unit == 'ac-ft':
                                 val *= self.ACRE_FEET_TO_VOLUME
