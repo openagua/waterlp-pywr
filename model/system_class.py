@@ -89,8 +89,9 @@ class WaterSystem(object):
     def __init__(self, conn, name, network, all_scenarios, template, args, settings=None, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
-        self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
-        self.ACRE_FEET_TO_VOLUME = 1e3 * 43560 / 1e6  # NOTE: model units are TAF, not AF
+        # Both of these are now converted to cubic meters (per time step)
+        self.VOLUMETRIC_FLOW_RATE_CONST = 0.0864 * 0.0283168  # = 60 * 60 * 24 / 1e6
+        self.TAF_TO_VOLUME = 43.56 * 0.0283168  # = 1e3 * 43560 / 1e6  # NOTE: model units are TAF, not AF
 
         self.conn = conn
         self.session = session
@@ -544,7 +545,7 @@ class WaterSystem(object):
 
                     if unit == 'ac-ft':
                         initial_values \
-                            = {key: value * self.ACRE_FEET_TO_VOLUME for (key, value) in initial_values.items()}
+                            = {key: value * self.TAF_TO_VOLUME for (key, value) in initial_values.items()}
 
                 elif data_type == 'timeseries':
                     if attr_name in self.block_params:
@@ -666,7 +667,7 @@ class WaterSystem(object):
                             val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
                         elif dimension == 'Volume':
                             if unit == 'ac-ft':
-                                val *= self.ACRE_FEET_TO_VOLUME
+                                val *= self.TAF_TO_VOLUME
 
                         # create key
                         pyomo_key = list(idx) + [i] if type(idx) == tuple else [idx, i]
@@ -778,7 +779,7 @@ class WaterSystem(object):
 
             if dimension == 'Volume':
                 if unit == 'ac-ft':
-                    val /= self.ACRE_FEET_TO_VOLUME
+                    val /= self.TAF_TO_VOLUME
             elif dimension == 'Volumetric flow rate':
                 # elif unit == 'ft^3 s^-1':
                 val /= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
@@ -911,7 +912,7 @@ class WaterSystem(object):
                                                                self.scenario.name)
 
                 if tattr['dimension'] == 'Temperature':
-                    continue # TODO: fix this!!!
+                    continue  # TODO: fix this!!!
 
                 rs = {
                     'resource_attr_id': res_attr_id,
