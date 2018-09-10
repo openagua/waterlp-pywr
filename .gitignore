@@ -1,3 +1,5 @@
+instance/
+results/
 build/
 model/__pycache__/
 model/logs/

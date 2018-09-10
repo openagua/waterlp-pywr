@@ -1,6 +1,5 @@
 import json
 
-from attrdict import AttrDict
 from requests import post
 
 
@@ -8,6 +7,7 @@ class connection(object):
 
     def __init__(self, args=None, scenario_ids=None, log=None):
         self.url = args.data_url
+        self.filename = args.filename
         self.app_name = args.app_name
         self.session_id = args.session_id
         self.user_id = int(args.user_id)
@@ -25,17 +25,24 @@ class connection(object):
         if self.template_id:
             get_network_params.update({'template_id': self.template_id})
 
-        response = self.call('get_network', get_network_params)
-        if 'faultcode' in response:
-            if 'session' in response.get('faultcode', '').lower():
-                self.login(username=args.hydra_username, password=args.hydra_password)
+        if args.filename:
+            with open(args.filename) as f:
+                data = json.load(f, object_hook=JSONObject)
+                self.network = data.get('network')
+                self.template = data.get('template')
+                self.template_attributes = data.get('template_attributes')
+                self.template_id = self.template.get('id')
+
+        else:
             response = self.call('get_network', get_network_params)
+            if 'faultcode' in response:
+                if 'session' in response.get('faultcode', '').lower():
+                    self.login(username=args.hydra_username, password=args.hydra_password)
+                response = self.call('get_network', get_network_params)
 
-        self.network = response
-
-        self.template_id = self.template_id or self.network.layout.get('active_template_id')
-
-        self.template = self.template_id and self.call('get_template', {'template_id': self.template_id})
+            self.network = response
+            self.template_id = self.template_id or self.network.layout.get('active_template_id')
+            self.template = self.template_id and self.call('get_template', {'template_id': self.template_id})
 
         # create some useful dictionaries
         # Since pyomo doesn't know about attribute ids, etc., we need to be able to relate
@@ -108,6 +115,21 @@ class connection(object):
                 self.session_id = response.cookies['beaker.session.id']
 
         return content
+
+    def get_basic_network(self):
+        if self.filename:
+            return self.network
+        else:
+            return self.call('get_network',
+                             {'network_id': self.network.id, 'include_data': 'N', 'summary': 'N',
+                              'include_resources': 'N'})
+
+    # def get_template_attributes(self):
+    #     if self.filename:
+    #         return self.template_attributes
+    #     else:
+    #         return self.call('get_template_attributes', {'template_id': self.template.id})
+    #
 
     def get_res_attr_data(self, **kwargs):
         res_attr_data = self.call(

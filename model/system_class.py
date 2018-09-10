@@ -1,3 +1,4 @@
+import os
 from math import sqrt
 import json
 from collections import OrderedDict
@@ -829,6 +830,8 @@ class WaterSystem(object):
 
         if self.args.destination == 'source':
             self.save_results_to_source()
+        elif self.args.destination == 'local':
+            self.save_results_to_local()
         elif self.args.destination == 'aws_s3':
             self.save_results_to_s3()
 
@@ -955,89 +958,125 @@ class WaterSystem(object):
                 self.scenario.reporter.report(action='error', message=msg)
             raise
 
-    def save_results_to_s3(self):
-
-        import boto3
-        s3 = boto3.client('s3')
+    # def save_results_to_s3(self):
+    #
+    #     import boto3
+    #     s3 = boto3.client('s3')
+    #
+    #     if len(self.scenario.base_ids) == 1:
+    #         o = s = self.scenario.base_ids[0]
+    #     else:
+    #         o, s = self.scenario.base_ids
+    #     base_path = 'results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
+    #         project=self.network.project_id,
+    #         network=self.network.id,
+    #         run=self.args.start_time,
+    #         scenario='O{}-S{}'.format(o, s),
+    #         subscenario=self.metadata['number'])
+    #
+    #     # save variable data to database
+    #     res_scens = []
+    #     res_names = {}
+    #
+    #     try:
+    #
+    #         # write metadata
+    #         content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': ')).encode()
+    #         s3.put_object(Body=content, Bucket='openagua.org', Key=base_path + '/metadata.json')
+    #
+    #         count = 1
+    #         pcount = 1
+    #         nparams = len(self.store)
+    #         path = base_path + '/data/{parameter}.csv'
+    #         for param_name, param_values in self.store.items():
+    #             pcount += 1
+    #             df = self.param_to_df(param_name, param_values)
+    #             content = df.to_csv().encode()
+    #
+    #             if content:
+    #                 s3.put_object(Body=content, Bucket='openagua.org', Key=path.format(parameter=param_name))
+    #
+    #             if count % 10 == 0 or pcount == nparams:
+    #                 if self.scenario.reporter:
+    #                     self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
+    #             count += 1
+    #
+    #     except:
+    #         msg = 'ERROR: Results could not be saved.'
+    #         # self.logd.info(msg)
+    #         if self.scenario.reporter:
+    #             self.scenario.reporter.report(action='error', message=msg)
+    #         raise
+    #
+    def save_results_to_local(self):
 
         if len(self.scenario.base_ids) == 1:
             o = s = self.scenario.base_ids[0]
         else:
             o, s = self.scenario.base_ids
-        base_path = 'results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
+        base_path = './results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
             project=self.network.project_id,
             network=self.network.id,
             run=self.args.start_time,
             scenario='O{}-S{}'.format(o, s),
             subscenario=self.metadata['number'])
 
-        # save variable data to database
-        res_scens = []
-        res_names = {}
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+
+        res_names = {
+            'node': {n.id: n.name for n in self.network.nodes},
+            'link': {l.id: l.name for l in self.network.links}
+        }
 
         try:
 
             # write metadata
-            content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': ')).encode()
-            s3.put_object(Body=content, Bucket='openagua.org', Key=base_path + '/metadata.json')
+            with open('{}/metadata.json'.format(base_path), 'w') as f:
+                json.dump(self.metadata, f, sort_keys=True, indent=4, separators=(',', ': '))
 
             count = 1
             pcount = 1
-            nparams = len(self.results)
+            nparams = len(self.store)
             path = base_path + '/data/{parameter}.csv'
-            for param_name, param_values in self.results.items():
+            results = {}
+            for key, values in self.store.items():
                 pcount += 1
+
+                res_type, res_id, attr_id = key.split('/')
+                res_id = int(res_id)
+                attr_id = int(attr_id)
+
+                tattr = self.conn.tattrs.get((res_type, res_id, attr_id))
+                if not tattr:
+                    # Same as previous issue.
+                    # This is because the model assigns all resource attribute possibilities to all resources of like type
+                    # In practice this shouldn't make a difference, but may result in a model larger than desired
+                    # TODO: correct this
+                    continue
+                param_name = get_param_name(res_type, tattr['attr_name'])
+
                 if param_name not in self.params:
                     continue  # it's probably an internal variable/parameter
-                resource_type = self.params[param_name]['resource_type']
-                ta = self.params[param_name]['type_attr']
-                attr_id = ta['attr_id']
 
-                tattr = self.conn.tattrs[resource_type][attr_id]
-
-                # reorganize values as stored by Pyomo to resource attributes
-                # pid = Pyomo resource attribute id
-                # create datasets from values
-                df_all = pd.DataFrame()
-
-                # dataset_values = {}
-                for idx, values in param_values.items():
-                    idx = type(idx) == tuple and list(idx) or [idx]  # needed to concatenate with the attribute name
-                    if resource_type == 'node':
-                        n = 1
-                        pid = (idx[0], ta['attr_name'])
-                        res_name = self.nodes[pid[0]]['name']
-                    elif resource_type == 'link':
-                        n = 2
-                        pid = (idx[0], idx[1], ta['attr_name'])
-                        res_name = self.links[pid[:n]]['name']
+                res_name = res_names.get(res_type, {}).get(res_id) or self.network.name
+                try:
+                    data = pd.DataFrame.from_dict(values, orient='index', columns=[res_name])
+                    if param_name not in results:
+                        results[param_name] = data
                     else:
-                        # TODO: Include Network resource data here
-                        continue
+                        results[param_name] = pd.concat([results[param_name], data], axis=1, sort=True)
+                except:
+                    continue
 
-                    if pid not in self.conn.res_attr_lookup[resource_type]:
-                        continue
+            for param_name, data in results.items():
 
-                    # has_blocks = ta.properties.get('has_blocks') \
-                    # or resource_type == 'node' and len(idx) == 2 \
-                    # or resource_type == 'link' and len(idx) == 3
-
-                    # if has_blocks:
-                    # block = 0 if len(idx) == n else idx[n]
-                    # df = pd.DataFrame.from_dict({(res_name, block): values})
-                    # else:
-                    df = pd.DataFrame.from_dict({res_name: values})
-                    df_all = pd.concat([df_all, df], axis=1)
-
-                # summed = df_all.groupby(axis=1, level=0).sum()
-                content = df_all.to_csv().encode()
-
-                s3.put_object(Body=content, Bucket='openagua.org', Key=path.format(parameter=param_name))
+                if not data.empty:
+                    data.to_csv('{}/{}.csv'.format(base_path, param_name))
 
                 if count % 10 == 0 or pcount == nparams:
                     if self.scenario.reporter:
-                        self.scenario.reporter.report(action='save', progress=100,
-                                                      saved=round(count / (self.nparams + self.nvars) * 100))
+                        self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
                 count += 1
 
         except:

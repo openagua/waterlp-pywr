@@ -110,7 +110,7 @@ class Scenario(object):
                 'action': action,
                 'status': statuses.get(action, 'unknown'),
                 'date': self.current_date,
-                'progress': self.finished / self.total_steps * 100,
+                'progress': int(round(self.finished / self.total_steps * 100)),
             })
             if action == 'start':
                 payload.update({
