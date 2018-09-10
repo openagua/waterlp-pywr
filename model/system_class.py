@@ -57,7 +57,7 @@ def perturb(val, variation):
         return val
 
 
-def addsubblocks(values, param_name, subblocks):
+def add_subblocks(values, param_name, subblocks):
     nsubblocks = len(subblocks)
 
     new_values = {}
@@ -74,9 +74,9 @@ def addsubblocks(values, param_name, subblocks):
             raise
 
     elif param_name == 'nodePriority':
-        for i, subblock in enumerate(subblocks):
-            new_vals = {}
-            for block in values:
+        for block in values:
+            for i, subblock in enumerate(subblocks):
+                new_vals = {}
                 for d, v in values[block].items():
                     new_vals[d] = v + (1 - sqrt((nsubblocks - i) / nsubblocks))
                 new_values[(block, subblock)] = new_vals
@@ -203,7 +203,7 @@ class WaterSystem(object):
         # timestep deltas
         self.tsdeltas = {}
 
-        # user the dates in evaluator because we've already incurred the expense of parsing the date.
+        # use the dates in evaluator because we've already incurred the expense of parsing the date.
         self.tsdeltas = dict((self.dates_as_string[i], self.evaluator.dates[i + 1] - ts) for i, ts in
                              enumerate(self.evaluator.dates[:-1]))
         self.tsdeltas[self.evaluator.dates_as_string[-1]] = self.tsdeltas[
@@ -383,7 +383,7 @@ class WaterSystem(object):
                         # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
                         # if has_blocks and len(blocks) == 1:
                         if has_blocks:
-                            values = addsubblocks(values, param_name, self.default_subblocks)
+                            values = add_subblocks(values, param_name, self.default_subblocks)
                             blocks = list(values.keys())
 
                         if param_name not in self.timeseries:
@@ -624,7 +624,7 @@ class WaterSystem(object):
                 # update missing blocks, if any
                 # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
                 if has_blocks:
-                    values = addsubblocks(values, param_name, self.default_subblocks)
+                    values = add_subblocks(values, param_name, self.default_subblocks)
 
             if not values:
                 return

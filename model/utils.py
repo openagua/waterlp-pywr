@@ -39,7 +39,7 @@ def make_levels(variation):
                 step = params.get('step')
                 levels = xrange(start, end, step)
             elif method == 'manual':
-                levels = param.get('values')
+                levels = params.get('values')
         elif concurrency == 'concurrent':
             if method == 'range':
                 levels = xrange(start, end, (end - start) / (nvars - 1))
@@ -108,10 +108,11 @@ def create_crosswise_subscenarios(network, template, scenario, scenario_type):
     values_lookup = {}
     resources_lookup = {}
     for variation in variations:
-        values_lookup[v['id']] = get_variation_values(variation)
-        resources_lookup[v['id']] = get_resources(network, template, scenario, variation)
+        values_lookup[variation['id']] = get_variation_values(variation)
+        resources_lookup[variation['id']] = get_resources(network, template, scenario, variation)
 
-    def update_variations(obj={}):
+    def update_variations(obj=None):
+        obj = obj or {}
 
         for i, variation in enumerate(variations):
 
