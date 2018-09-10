@@ -6,6 +6,7 @@ from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
 from model import create_model
 from post_reporter import Reporter as PostReporter
 from ably_reporter import AblyReporter
+from screen_reporter import ScreenReporter
 
 current_step = 0
 total_steps = 0
@@ -17,10 +18,10 @@ def run_scenario(supersubscenario, args=None, verbose=False):
     system = supersubscenario.get('system')
 
     # setup the reporter (ably is on a per-process basis)
-    post_reporter = PostReporter(args)
+    post_reporter = PostReporter(args) if args.post_url else None
     reporter = None
     if args.message_protocol is None:
-        reporter = None
+        reporter = ScreenReporter(args)
     elif args.message_protocol == 'post':
         post_reporter.is_main_reporter = True
         reporter = post_reporter

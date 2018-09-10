@@ -77,10 +77,7 @@ def run_scenarios(args, log):
     all_supersubscenarios = []
 
     # prepare the reporter
-    if args.message_protocol is not None:
-        post_reporter = PostReporter(args)
-    else:
-        post_reporter = None
+    post_reporter = PostReporter(args) if args.post_url else None
 
     for scenario_ids in args.scenario_ids:
 
@@ -93,8 +90,11 @@ def run_scenarios(args, log):
         scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
 
         start_payload = scenario.update_payload(action='start')
-        post_reporter.start(is_main_reporter=(args.message_protocol == 'post'),
-                            **start_payload)  # kick off reporter with heartbeat
+        if post_reporter:
+            post_reporter.start(is_main_reporter=(args.message_protocol == 'post'),
+                                **start_payload)  # kick off reporter with heartbeat
+        else:
+            print("Model started")
 
         # create the system class
         # TODO: pass resources as dictionaries instead for quicker lookup
@@ -140,7 +140,10 @@ def run_scenarios(args, log):
                 m = "Unknown error."
             message = "Failed to prepare system. Error: {}".format(m)
 
-            post_reporter.report(action="error", message=message)
+            if post_reporter:
+                post_reporter.report(action="error", message=message)
+            else:
+                print(message)
 
             raise
 
@@ -220,8 +223,10 @@ def commandline_parser():
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
     parser.add_argument('--debug_ts', dest='debug_ts', type=int, default=10,
                         help='''The number of timesteps to run in debug mode.''')
-    parser.add_argument('--debug_gain', dest='debug_gain', action='store_true', help='''Debug flag for the Pyomo model.''')
-    parser.add_argument('--debug_loss', dest='debug_loss', action='store_true', help='''Debug flag for the Pyomo model.''')
+    parser.add_argument('--debug_gain', dest='debug_gain', action='store_true',
+                        help='''Debug flag for the Pyomo model.''')
+    parser.add_argument('--debug_loss', dest='debug_loss', action='store_true',
+                        help='''Debug flag for the Pyomo model.''')
     parser.add_argument('--c', dest='custom', type=dict, default={},
                         help='''Custom arguments passed as stringified JSON.''')
     parser.add_argument('--dest', dest='destination', default='source',
