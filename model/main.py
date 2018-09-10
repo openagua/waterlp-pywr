@@ -50,17 +50,15 @@ def run_scenarios(args, log):
     # connect to data server
     # ======================
     all_scenario_ids = list(set(sum(args.scenario_ids, ())))
+
     conn = connection(args=args, scenario_ids=all_scenario_ids)
 
     # ====================================
     # define subscenarios (aka variations)
     # ====================================
 
-    # create a dictionary of network attributes
-    network = conn.call('get_network', {'network_id': conn.network.id, 'include_data': 'N', 'summary': 'N',
-                                        'include_resources': 'N'})
-    template_attributes = conn.call('get_template_attributes', {'template_id': conn.template.id})
-    attrs = {ta.id: {'name': ta.name} for ta in template_attributes}
+    # this gets all scenarios in the system, not just the main scenarios of interest, but without data
+    network = conn.get_basic_network()
 
     # create the system
     base_system = WaterSystem(
@@ -185,6 +183,7 @@ def commandline_parser():
 
     parser.add_argument('--app', dest='app_name', help='''Name of the app.''')
     parser.add_argument('--durl', dest='data_url', help='''The Hydra Server URL.''')
+    parser.add_argument('--f', dest='filename', help='''The name of the input JSON file if running locally.''')
     parser.add_argument('--user', dest='hydra_username', help='''The username for logging in to Hydra Server.''')
     parser.add_argument('--pw', dest='hydra_password',
                         help='''The password for logging in to Hydra Server.''')
