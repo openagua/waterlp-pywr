@@ -1,8 +1,6 @@
 FROM ubuntu:16.04
 MAINTAINER David Rheinheimer "drheinheimer@umass.edu"
 
-ARG VERSION=0.1
-
 RUN apt-get update && apt-get install -y build-essential
 RUN apt-get install -y glpk-utils
 RUN apt-get install -y python3 python3-pip
