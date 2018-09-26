@@ -370,7 +370,7 @@ class Evaluator:
                 dates_idx = self.dates_as_string[tsi:tsf]
                 if type(values[0]) in (list, tuple):
                     cols = range(len(values[0]))
-                    if flavor is None:
+                    if flavor == 'json':
                         result = pd.DataFrame.from_records(data=values, index=dates_idx,
                                                            columns=cols).to_json(date_format='iso')
                     elif flavor == 'pandas':
