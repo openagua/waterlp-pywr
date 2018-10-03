@@ -544,7 +544,7 @@ class WaterSystem(object):
                 if data_type == 'scalar':
                     param_definition = 'm.{resource_type}s'
 
-                    if unit == 'ac-ft':
+                    if unit == 'ac-ft' or unit == 'in':
                         initial_values \
                             = {key: value * self.TAF_TO_VOLUME for (key, value) in initial_values.items()}
 

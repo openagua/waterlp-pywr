@@ -97,7 +97,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     m.nodeRelease = Var(m.Reservoir * m.TS, domain=NonNegativeReals)  # controlled release to a river
     m.nodeSpill = Var(m.Reservoir * m.TS, domain=NonNegativeReals)  # uncontrolled/undesired release to a river
-    m.nodeExcess = Var((m.FlowRequirement | m.WaterTreatment) * m.TS, domain=NonNegativeReals)
+    m.nodeExcess = Var((m.FlowRequirement | m.WaterTreatment | m.Hydropower) * m.TS, domain=NonNegativeReals)
     m.emptyStorage = Var(m.Reservoir * m.TS, domain=NonNegativeReals)  # empty storage space
     m.floodStorage = Var(m.Reservoir * m.TS, domain=NonNegativeReals)
 
@@ -148,9 +148,9 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
     def LocalLoss_rule(m, j, t):
         if j in m.Reservoir:
             # excess evap should not cause infeasibility, so (expensive) virtualPrecepGain is subtracted from net evap
-            # loss = m.nodeNetEvaporation[j, t] - m.virtualPrecipGain[j, t]
-            loss = 0
-        elif j in m.FlowRequirement | m.WaterTreatment:
+            loss = m.nodeNetEvaporation[j, t] - m.virtualPrecipGain[j, t]
+            # loss = 0
+        elif j in m.FlowRequirement | m.WaterTreatment | m.Hydropower:
             loss = 0
         elif j in m.DemandNodes:
             loss = m.nodeLocalLoss[j, t] + m.nodeDelivery[j, t] * m.nodeConsumptiveLoss[j, t] / 100
@@ -199,7 +199,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
         '''Deliveries may not exceed physical conditions.'''
         if j in m.Storage:
             return m.nodeStorageDelivery[j, t] <= m.nodeStorage[j, t]
-        elif j in m.FlowRequirement | m.WaterTreatment:
+        elif j in m.FlowRequirement | m.WaterTreatment | m.Hydropower:
             return m.nodeDelivery[j, t] + m.nodeExcess[j, t] <= sum(m.linkOutflow[i, j, t] for i in m.NodesIn[j])
         elif j in m.DemandNodes:
             # deliveries to demand nodes (urban, ag, general) must equal actual inflows
