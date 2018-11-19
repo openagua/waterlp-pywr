@@ -6,7 +6,7 @@ import pandas as pd
 from pyomo.environ import Var, Param
 from datetime import datetime as dt
 
-from evaluator import Evaluator
+from .evaluator import Evaluator
 
 
 def convert_type_name(n):
