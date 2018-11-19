@@ -295,10 +295,16 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
 
     # channel capacity
     def ChannelInflowCap_rule(m, i, j, t):
-        return m.linkInflow[i, j, t] <= m.linkFlowCapacity[i, j, t]
+        if (i, j, t) in m.linkFlowCapacity and m.linkFlowCapacity[i, j, t].value >= 0:
+            return m.linkInflow[i, j, t] <= m.linkFlowCapacity[i, j, t]
+        else:
+            return Constraint.Skip
 
     def ChannelOutflowCap_rule(m, i, j, t):
-        return m.linkOutflow[i, j, t] <= m.linkFlowCapacity[i, j, t]
+        if (i, j, t) in m.linkFlowCapacity and m.linkFlowCapacity[i, j, t].value >= 0:
+            return m.linkOutflow[i, j, t] <= m.linkFlowCapacity[i, j, t]
+        else:
+            return Constraint.Skip
 
     m.ChannelInflowCapacity = Constraint(m.ConstrainedLink, m.TS, rule=ChannelInflowCap_rule)
     m.ChannelOutflowCapacity = Constraint(m.ConstrainedLink, m.TS, rule=ChannelOutflowCap_rule)

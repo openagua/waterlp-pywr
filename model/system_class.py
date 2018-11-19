@@ -549,7 +549,10 @@ class WaterSystem(object):
                             = {key: value * self.TAF_TO_VOLUME for (key, value) in initial_values.items()}
 
                 elif data_type == 'timeseries':
-                    if attr_name in self.block_params:
+                    if param_name == 'linkFlowCapacity':
+                        default = -1
+                        param_definition = 'm.ConstrainedLink, m.TS'
+                    elif attr_name in self.block_params:
                         param_definition = 'm.{resource_type}Blocks, m.TS'
                     else:
                         param_definition = 'm.{resource_type}s, m.TS'
@@ -561,7 +564,10 @@ class WaterSystem(object):
                     # this includes descriptors, which have no place in the LP model yet
                     continue
 
-                param_definition += ', default={}, mutable={}'.format(default, mutable)
+                param_definition += ', default={default}, mutable={mutable}'.format(
+                    default=default,
+                    mutable=mutable
+                )
                 if initial_values is not None:
                     param_definition += ', initialize=initial_values'
                     # TODO: This is an opportunity for allocating memory in a Cythonized version?
