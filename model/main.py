@@ -209,6 +209,7 @@ def commandline_parser():
                         help='''The format of a time step in Hydra Platform (found in hydra.ini).''')
     parser.add_argument('--ldir', dest='log_dir',
                         help='''The main log file directory.''')
+    parser.add_argument('--rname', dest='run_name', help='''Name of the run. This will be added to result scenarios.''')
     parser.add_argument('--sol', dest='solver', default='glpk',
                         help='''The solver to use (e.g., glpk, gurobi, etc.).''')
     parser.add_argument('--fs', dest='foresight', default='zero', help='''Foresight: 'perfect' or 'imperfect' ''')

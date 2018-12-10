@@ -26,6 +26,7 @@ def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=F
     m.NodesOut = Set(m.Nodes, initialize=NodesOut_init)
 
     # sets (nodes or links) for each template type
+    # TODO: make this more explicit; this method reduces transparency
     {setattr(m, k, Set(within=m.Nodes, initialize=v)) for k, v in types['node'].items()}
     {setattr(m, k, Set(within=m.Links, initialize=v)) for k, v in types['link'].items()}
 

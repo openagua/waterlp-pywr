@@ -78,8 +78,8 @@ class Scenario(object):
             source_names.append(s.name)
 
         self.name = ' - '.join(source_names)
-        if len(source_names) == 1:
-            self.name += ' (results)'
+        if args.run_name:
+            self.name = '{} - {}'.format(args.run_name, self.name)
         # results_scenario_name = '{}; {}'.format(base_name, self.starttime.strftime('%Y-%m-%d %H:%M:%S'))
 
         self.option = self.base_scenarios[0]

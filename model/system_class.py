@@ -6,7 +6,7 @@ import pandas as pd
 from pyomo.environ import Var, Param
 from datetime import datetime as dt
 
-from .evaluator import Evaluator
+from evaluator import Evaluator
 
 
 def convert_type_name(n):
@@ -197,6 +197,14 @@ class WaterSystem(object):
             'time_step': self.scenario.time_step,
         }
 
+        network_storage = self.conn.network.layout.get('storage')
+        if network_storage.location == 'AmazonS3':
+            network_folder = self.conn.network.layout.get('storage', {}).get('folder')
+            bucket_name = os.environ.get('AWS_S3_BUCKET')
+
+            settings['network_files_path'] = bucket_name and network_folder and 's3://{}/{}'.format(bucket_name,
+                                                                                                    network_folder)
+
         self.evaluator = Evaluator(self.conn, settings=settings, date_format=self.date_format)
         self.dates = self.evaluator.dates
         self.dates_as_string = self.evaluator.dates_as_string
@@ -324,6 +332,7 @@ class WaterSystem(object):
 
                 # default blocks
                 # NB: self.block_params should be defined
+                # TODO: update has_blocks from template, not metadata
                 has_blocks = (attr_name in self.block_params) or metadata.get('has_blocks', 'N') == 'Y'
                 blocks = [(0, 0)]
 
@@ -594,8 +603,7 @@ class WaterSystem(object):
             getattr(self.instance, 'nodeInitialStorage')[j] = getattr(self.instance, 'nodeStorage')[j, 0].value
 
     def update_param(self, idx, param_name, dates_as_string, values=None, is_function=False, func=None,
-                     has_blocks=False, scope='model',
-                     initialize=False):
+                     has_blocks=False, scope='model', initialize=False):
 
         try:
             param = self.params[param_name]
@@ -617,12 +625,19 @@ class WaterSystem(object):
                 resource_id = idx
             else:
                 resource_id = idx
+            parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
 
             if is_function:
                 self.evaluator.data_type = data_type
                 try:
-                    full_key = (resource_type, resource_id, attr_id, dates_as_string)
-                    rc, errormsg, values = self.evaluator.eval_function(func, counter=0, has_blocks=has_blocks)
+                    # full_key = (resource_type, resource_id, attr_id, dates_as_string)
+                    rc, errormsg, values = self.evaluator.eval_function(
+                        func,
+                        has_blocks=has_blocks,
+                        flatten=not has_blocks,
+                        data_type=data_type,
+                        parentkey=parentkey
+                    )
                     if errormsg:
                         raise Exception(errormsg)
                 except:
@@ -708,9 +723,17 @@ class WaterSystem(object):
 
         for param_name, params in self.timeseries.items():
             for idx, p in params.items():
-                self.update_param(idx, param_name, dates_as_string, values=p.get('values'),
-                                  is_function=p.get('is_function'), func=p.get('function'),
-                                  has_blocks=p.get('has_blocks'), scope=scope, initialize=initialize)
+                self.update_param(
+                    idx,
+                    param_name,
+                    dates_as_string,
+                    values=p.get('values'),
+                    is_function=p.get('is_function'),
+                    func=p.get('function'),
+                    has_blocks=p.get('has_blocks'),
+                    scope=scope,
+                    initialize=initialize
+                )
 
     def update_internal_params(self):
         '''Update internal parameters based on calculated variables'''
@@ -824,10 +847,17 @@ class WaterSystem(object):
         # store value
         key_string = '{ref_key}/{ref_id}/{attr_id}'.format(ref_key=ref_key, ref_id=ref_id, attr_id=attr_id)
         if key_string not in self.store:
-            self.store[key_string] = {}
+            if has_blocks:
+                self.store[key_string] = {0: {}}
+            else:
+                self.store[key_string] = {}
+        elif has_blocks and 0 not in self.store[key_string]:
+            self.store[key_string][0] = {}
         if has_blocks:
-            val += self.store[key_string].get(timestamp, 0)
-        self.store[key_string][timestamp] = val
+            val += self.store[key_string][0].get(timestamp, 0)
+            self.store[key_string][0][timestamp] = val
+        else:
+            self.store[key_string][timestamp] = val
 
     def save_results(self):
 
@@ -860,6 +890,7 @@ class WaterSystem(object):
                                                  'layout': {
                                                      'class': 'results', 'sources': self.scenario.base_ids,
                                                      'tags': self.scenario.tags,
+                                                     'run': self.args.run_name,
                                                      'modified_date': mod_date,
                                                      'modified_by': self.args.user_id
                                                  }
@@ -867,7 +898,7 @@ class WaterSystem(object):
         else:
             result_scenario['layout'].update({
                 'modified_date': mod_date,
-                'modified_by': self.args.user_id
+                'modified_by': self.args.user_id,
             })
 
             self.conn.call('update_scenario', {
@@ -1082,7 +1113,8 @@ class WaterSystem(object):
 
                 if count % 10 == 0 or pcount == nparams:
                     if self.scenario.reporter:
-                        self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
+                        self.scenario.reporter.report(action='save',
+                                                      saved=round(count / (self.nparams + self.nvars) * 100))
                 count += 1
 
         except:
