@@ -5,6 +5,7 @@ from collections import OrderedDict
 import pandas as pd
 from pyomo.environ import Var, Param
 from datetime import datetime as dt
+from math import isnan
 
 from evaluator import Evaluator
 

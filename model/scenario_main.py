@@ -114,7 +114,16 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
 
         # solve the model
-        results = optimizer.solve(system.instance)
+        try:
+            results = optimizer.solve(system.instance)
+        except:
+            system.save_results()
+            msg = 'ERROR: Unknown error at step {} of {} ({}). Partial results have been saved.'.format(
+                current_step, total_steps, current_dates[0]
+            )
+            if system.scenario.reporter:
+                system.scenario.reporter.report(action='error', message=msg)
+            raise Exception(msg)
 
         if (results.solver.status == SolverStatus.ok) \
                 and (results.solver.termination_condition == TerminationCondition.optimal):

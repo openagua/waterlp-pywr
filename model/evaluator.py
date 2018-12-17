@@ -4,6 +4,7 @@ import sys
 import traceback
 from copy import copy
 from numpy import mean
+from math import isnan
 
 import pandas as pd
 import pendulum
@@ -411,9 +412,15 @@ class Evaluator:
 
                 date_as_string = date.to_datetime_string()
                 if type(value) == dict and date_as_string in value:
-                    self.hashstore[hashkey][timestep] = value.get(date_as_string)
+                    val = value.get(date_as_string)
                 else:
-                    self.hashstore[hashkey][timestep] = value
+                    val = value
+
+                if val and data_type in ['timeseries', 'periodic timeseries'] and isnan(val):
+                    errormsg = "Attribute value is not a number."
+                    raise Exception(errormsg)
+                else:
+                    self.hashstore[hashkey][timestep] = val
                 if self.data_type != 'timeseries':
                     break
 
@@ -621,8 +628,16 @@ class Evaluator:
                 exec("{arg} = kwargs.pop('{arg}', None)".format(arg=arg))
 
             flavor = kwargs.pop('flavor', 'dataframe')
+            fill_method = kwargs.pop('fill_method', 'interpolate')
+            interp_method = kwargs.pop('interp_method', None)
 
             df = pd.read_csv(fullpath, **kwargs)
+
+            interp_args = {}
+            if fill_method == 'interpolate':
+                if interp_method in ['time', 'akima', 'quadratic']:
+                    interp_args['method'] = interp_method
+                df.interpolate(inplace=True, **interp_args)
 
             if flavor == 'dict':
                 data = df.to_dict()
