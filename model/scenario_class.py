@@ -19,6 +19,7 @@ class Scenario(object):
         self.reporter = None
         self.total_steps = 1
         self.finished = 0
+        self.current_date = None
 
         self.start_time = '0'
         self.end_time = '9'
@@ -66,10 +67,7 @@ class Scenario(object):
 
             this_chain.reverse()
 
-            if i == 0:
-                self.source_ids.extend(this_chain)  # include baseline
-            else:
-                self.source_ids.extend(this_chain[1:]) # exclude baseline
+            self.source_ids.extend(this_chain)  # include baseline
 
         self.base_ids = []
         for s in self.base_scenarios:
@@ -80,8 +78,8 @@ class Scenario(object):
             source_names.append(s.name)
 
         self.name = ' - '.join(source_names)
-        if len(source_names) == 1:
-            self.name += ' (results)'
+        if args.run_name:
+            self.name = '{} - {}'.format(args.run_name, self.name)
         # results_scenario_name = '{}; {}'.format(base_name, self.starttime.strftime('%Y-%m-%d %H:%M:%S'))
 
         self.option = self.base_scenarios[0]
@@ -107,23 +105,25 @@ class Scenario(object):
         if action:
             payload.update({
                 'action': action,
-                'status': statuses.get(action, 'unknown')
+                'status': statuses.get(action, 'unknown'),
+                'date': self.current_date,
+                'progress': int(round(self.finished / self.total_steps * 100)),
             })
             if action == 'start':
                 payload.update({
-                    'progress': 0,
+                    # 'progress': 0,
                 })
             elif action == 'step':
                 payload.update({
-                    'progress': self.finished / self.total_steps * 100
+
                 })
             elif action == 'save':
                 payload.update({
-                    'progress': 100,
+                    # 'progress': self.finished / self.total_steps * 100,
                 })
             elif action == 'done':
                 payload.update({
-                    'progress': 100,
+                    # 'progress': self.finished / self.total_steps * 100,
                     'saved': 100,
                 })
         return payload

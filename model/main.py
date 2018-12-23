@@ -50,17 +50,15 @@ def run_scenarios(args, log):
     # connect to data server
     # ======================
     all_scenario_ids = list(set(sum(args.scenario_ids, ())))
+
     conn = connection(args=args, scenario_ids=all_scenario_ids)
 
     # ====================================
     # define subscenarios (aka variations)
     # ====================================
 
-    # create a dictionary of network attributes
-    network = conn.call('get_network', {'network_id': conn.network.id, 'include_data': 'N', 'summary': 'N',
-                                        'include_resources': 'N'})
-    template_attributes = conn.call('get_template_attributes', {'template_id': conn.template.id})
-    attrs = {ta.id: {'name': ta.name} for ta in template_attributes}
+    # this gets all scenarios in the system, not just the main scenarios of interest, but without data
+    network = conn.get_basic_network()
 
     # create the system
     base_system = WaterSystem(
@@ -79,10 +77,7 @@ def run_scenarios(args, log):
     all_supersubscenarios = []
 
     # prepare the reporter
-    if args.message_protocol is not None:
-        post_reporter = PostReporter(args)
-    else:
-        post_reporter = None
+    post_reporter = PostReporter(args) if args.post_url else None
 
     for scenario_ids in args.scenario_ids:
 
@@ -95,8 +90,11 @@ def run_scenarios(args, log):
         scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
 
         start_payload = scenario.update_payload(action='start')
-        post_reporter.start(is_main_reporter=(args.message_protocol == 'post'),
-                            **start_payload)  # kick off reporter with heartbeat
+        if post_reporter:
+            post_reporter.start(is_main_reporter=(args.message_protocol == 'post'),
+                                **start_payload)  # kick off reporter with heartbeat
+        else:
+            print("Model started")
 
         # create the system class
         # TODO: pass resources as dictionaries instead for quicker lookup
@@ -142,7 +140,10 @@ def run_scenarios(args, log):
                 m = "Unknown error."
             message = "Failed to prepare system. Error: {}".format(m)
 
-            post_reporter.report(action="error", message=message)
+            if post_reporter:
+                post_reporter.report(action="error", message=message)
+            else:
+                print(message)
 
             raise
 
@@ -185,6 +186,7 @@ def commandline_parser():
 
     parser.add_argument('--app', dest='app_name', help='''Name of the app.''')
     parser.add_argument('--durl', dest='data_url', help='''The Hydra Server URL.''')
+    parser.add_argument('--f', dest='filename', help='''The name of the input JSON file if running locally.''')
     parser.add_argument('--user', dest='hydra_username', help='''The username for logging in to Hydra Server.''')
     parser.add_argument('--pw', dest='hydra_password',
                         help='''The password for logging in to Hydra Server.''')
@@ -207,6 +209,7 @@ def commandline_parser():
                         help='''The format of a time step in Hydra Platform (found in hydra.ini).''')
     parser.add_argument('--ldir', dest='log_dir',
                         help='''The main log file directory.''')
+    parser.add_argument('--rname', dest='run_name', help='''Name of the run. This will be added to result scenarios.''')
     parser.add_argument('--sol', dest='solver', default='glpk',
                         help='''The solver to use (e.g., glpk, gurobi, etc.).''')
     parser.add_argument('--fs', dest='foresight', default='zero', help='''Foresight: 'perfect' or 'imperfect' ''')
@@ -221,8 +224,10 @@ def commandline_parser():
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
     parser.add_argument('--debug_ts', dest='debug_ts', type=int, default=10,
                         help='''The number of timesteps to run in debug mode.''')
-    parser.add_argument('--debug_gain', dest='debug_gain', action='store_true', help='''Debug flag for the Pyomo model.''')
-    parser.add_argument('--debug_loss', dest='debug_loss', action='store_true', help='''Debug flag for the Pyomo model.''')
+    parser.add_argument('--debug_gain', dest='debug_gain', action='store_true',
+                        help='''Debug flag for the Pyomo model.''')
+    parser.add_argument('--debug_loss', dest='debug_loss', action='store_true',
+                        help='''Debug flag for the Pyomo model.''')
     parser.add_argument('--c', dest='custom', type=dict, default={},
                         help='''Custom arguments passed as stringified JSON.''')
     parser.add_argument('--dest', dest='destination', default='source',

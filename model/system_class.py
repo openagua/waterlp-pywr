@@ -1,9 +1,11 @@
+import os
 from math import sqrt
 import json
 from collections import OrderedDict
 import pandas as pd
 from pyomo.environ import Var, Param
 from datetime import datetime as dt
+from math import isnan
 
 from evaluator import Evaluator
 
@@ -57,7 +59,7 @@ def perturb(val, variation):
         return val
 
 
-def addsubblocks(values, param_name, subblocks):
+def add_subblocks(values, param_name, subblocks):
     nsubblocks = len(subblocks)
 
     new_values = {}
@@ -74,9 +76,9 @@ def addsubblocks(values, param_name, subblocks):
             raise
 
     elif param_name == 'nodePriority':
-        for i, subblock in enumerate(subblocks):
-            new_vals = {}
-            for block in values:
+        for block in values:
+            for i, subblock in enumerate(subblocks):
+                new_vals = {}
                 for d, v in values[block].items():
                     new_vals[d] = v + (1 - sqrt((nsubblocks - i) / nsubblocks))
                 new_values[(block, subblock)] = new_vals
@@ -89,8 +91,9 @@ class WaterSystem(object):
     def __init__(self, conn, name, network, all_scenarios, template, args, settings=None, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
+        # Both of these are now converted to cubic meters (per time step)
         self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
-        self.ACRE_FEET_TO_VOLUME = 43559.9 / 1e6 * 1e3  # NOTE: model units are TAF, not AF
+        self.TAF_TO_VOLUME = 1e3 * 43560 / 1e6  # NOTE: model units are TAF, not AF
 
         self.conn = conn
         self.session = session
@@ -195,6 +198,14 @@ class WaterSystem(object):
             'time_step': self.scenario.time_step,
         }
 
+        network_storage = self.conn.network.layout.get('storage')
+        if network_storage.location == 'AmazonS3':
+            network_folder = self.conn.network.layout.get('storage', {}).get('folder')
+            bucket_name = os.environ.get('AWS_S3_BUCKET')
+
+            settings['network_files_path'] = bucket_name and network_folder and 's3://{}/{}'.format(bucket_name,
+                                                                                                    network_folder)
+
         self.evaluator = Evaluator(self.conn, settings=settings, date_format=self.date_format)
         self.dates = self.evaluator.dates
         self.dates_as_string = self.evaluator.dates_as_string
@@ -202,7 +213,7 @@ class WaterSystem(object):
         # timestep deltas
         self.tsdeltas = {}
 
-        # user the dates in evaluator because we've already incurred the expense of parsing the date.
+        # use the dates in evaluator because we've already incurred the expense of parsing the date.
         self.tsdeltas = dict((self.dates_as_string[i], self.evaluator.dates[i + 1] - ts) for i, ts in
                              enumerate(self.evaluator.dates[:-1]))
         self.tsdeltas[self.evaluator.dates_as_string[-1]] = self.tsdeltas[
@@ -322,6 +333,7 @@ class WaterSystem(object):
 
                 # default blocks
                 # NB: self.block_params should be defined
+                # TODO: update has_blocks from template, not metadata
                 has_blocks = (attr_name in self.block_params) or metadata.get('has_blocks', 'N') == 'Y'
                 blocks = [(0, 0)]
 
@@ -382,7 +394,7 @@ class WaterSystem(object):
                         # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
                         # if has_blocks and len(blocks) == 1:
                         if has_blocks:
-                            values = addsubblocks(values, param_name, self.default_subblocks)
+                            values = add_subblocks(values, param_name, self.default_subblocks)
                             blocks = list(values.keys())
 
                         if param_name not in self.timeseries:
@@ -542,12 +554,15 @@ class WaterSystem(object):
                 if data_type == 'scalar':
                     param_definition = 'm.{resource_type}s'
 
-                    if unit == 'ac-ft':
-                        initial_values = {key: value * self.ACRE_FEET_TO_VOLUME for (key, value) in
-                                          initial_values.items()}
+                    if unit == 'ac-ft' or unit == 'in':
+                        initial_values \
+                            = {key: value * self.TAF_TO_VOLUME for (key, value) in initial_values.items()}
 
                 elif data_type == 'timeseries':
-                    if attr_name in self.block_params:
+                    if param_name == 'linkFlowCapacity':
+                        default = -1
+                        param_definition = 'm.ConstrainedLink, m.TS'
+                    elif attr_name in self.block_params:
                         param_definition = 'm.{resource_type}Blocks, m.TS'
                     else:
                         param_definition = 'm.{resource_type}s, m.TS'
@@ -559,7 +574,10 @@ class WaterSystem(object):
                     # this includes descriptors, which have no place in the LP model yet
                     continue
 
-                param_definition += ', default={}, mutable={}'.format(default, mutable)
+                param_definition += ', default={default}, mutable={mutable}'.format(
+                    default=default,
+                    mutable=mutable
+                )
                 if initial_values is not None:
                     param_definition += ', initialize=initial_values'
                     # TODO: This is an opportunity for allocating memory in a Cythonized version?
@@ -586,8 +604,7 @@ class WaterSystem(object):
             getattr(self.instance, 'nodeInitialStorage')[j] = getattr(self.instance, 'nodeStorage')[j, 0].value
 
     def update_param(self, idx, param_name, dates_as_string, values=None, is_function=False, func=None,
-                     has_blocks=False, scope='model',
-                     initialize=False):
+                     has_blocks=False, scope='model', initialize=False):
 
         try:
             param = self.params[param_name]
@@ -609,12 +626,19 @@ class WaterSystem(object):
                 resource_id = idx
             else:
                 resource_id = idx
+            parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
 
             if is_function:
                 self.evaluator.data_type = data_type
                 try:
-                    full_key = (resource_type, resource_id, attr_id, dates_as_string)
-                    rc, errormsg, values = self.evaluator.eval_function(func, counter=0, has_blocks=has_blocks)
+                    # full_key = (resource_type, resource_id, attr_id, dates_as_string)
+                    rc, errormsg, values = self.evaluator.eval_function(
+                        func,
+                        has_blocks=has_blocks,
+                        flatten=not has_blocks,
+                        data_type=data_type,
+                        parentkey=parentkey
+                    )
                     if errormsg:
                         raise Exception(errormsg)
                 except:
@@ -623,7 +647,7 @@ class WaterSystem(object):
                 # update missing blocks, if any
                 # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
                 if has_blocks:
-                    values = addsubblocks(values, param_name, self.default_subblocks)
+                    values = add_subblocks(values, param_name, self.default_subblocks)
 
             if not values:
                 return
@@ -663,10 +687,10 @@ class WaterSystem(object):
                         # TODO: use generic unit converter here (and move to evaluator?)
                         if dimension == 'Volumetric flow rate':
                             # if unit == 'ft^3 s^-1':
-                            val *= self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST
+                            val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
                         elif dimension == 'Volume':
                             if unit == 'ac-ft':
-                                val *= self.ACRE_FEET_TO_VOLUME
+                                val *= self.TAF_TO_VOLUME
 
                         # create key
                         pyomo_key = list(idx) + [i] if type(idx) == tuple else [idx, i]
@@ -700,9 +724,17 @@ class WaterSystem(object):
 
         for param_name, params in self.timeseries.items():
             for idx, p in params.items():
-                self.update_param(idx, param_name, dates_as_string, values=p.get('values'),
-                                  is_function=p.get('is_function'), func=p.get('function'),
-                                  has_blocks=p.get('has_blocks'), scope=scope, initialize=initialize)
+                self.update_param(
+                    idx,
+                    param_name,
+                    dates_as_string,
+                    values=p.get('values'),
+                    is_function=p.get('is_function'),
+                    func=p.get('function'),
+                    has_blocks=p.get('has_blocks'),
+                    scope=scope,
+                    initialize=initialize
+                )
 
     def update_internal_params(self):
         '''Update internal parameters based on calculated variables'''
@@ -739,20 +771,23 @@ class WaterSystem(object):
     def store_results(self, pyomo_param, timesteps, tsidx, is_var, include_all=None):
 
         param = self.params.get(pyomo_param.name, {})
-        if not param and pyomo_param.name not in ['debugLoss', 'debugGain']:
+
+        # debug gain and debug loss should cause an exception not a return
+        if not param and pyomo_param.name not in ['debugGain', 'debugLoss']:
             return
 
-        resource_type = param['resource_type']
-        has_blocks = param['attr_name'] in self.block_params
-        dimension = param['dimension']
-        unit = param['unit']
-        attr_id = param['attr_id']
+        resource_type = param.get('resource_type')
+        has_blocks = param.get('attr_name') in self.block_params
+        dimension = param.get('dimension')
+        unit = param.get('unit')
+        attr_id = param.get('attr_id')
 
         # collect to results
         for idx, p in pyomo_param.items():
-            if p.value is None:
+            if p is None:
                 continue
 
+            # debug gain / loss
             if pyomo_param.name in ['debugLoss', 'debugGain']:
                 if p.value:
                     res_idx = idx[0]
@@ -771,11 +806,11 @@ class WaterSystem(object):
             # the purpose of this addition is to aggregate blocks, if any, thus eliminating the need for Pandas
             # on the other hand, it should be checked which is faster: Pandas group_by or simple addition here
 
-            val = 0 or round(p.value, 6)
+            val = 0 if not p.value else round(p.value, 6)
 
             if dimension == 'Volume':
                 if unit == 'ac-ft':
-                    val /= self.ACRE_FEET_TO_VOLUME
+                    val /= self.TAF_TO_VOLUME
             elif dimension == 'Volumetric flow rate':
                 # elif unit == 'ft^3 s^-1':
                 val /= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
@@ -813,10 +848,17 @@ class WaterSystem(object):
         # store value
         key_string = '{ref_key}/{ref_id}/{attr_id}'.format(ref_key=ref_key, ref_id=ref_id, attr_id=attr_id)
         if key_string not in self.store:
-            self.store[key_string] = {}
+            if has_blocks:
+                self.store[key_string] = {0: {}}
+            else:
+                self.store[key_string] = {}
+        elif has_blocks and 0 not in self.store[key_string]:
+            self.store[key_string][0] = {}
         if has_blocks:
-            val += self.store[key_string].get(timestamp, 0)
-        self.store[key_string][timestamp] = val
+            val += self.store[key_string][0].get(timestamp, 0)
+            self.store[key_string][0][timestamp] = val
+        else:
+            self.store[key_string][timestamp] = val
 
     def save_results(self):
 
@@ -825,6 +867,8 @@ class WaterSystem(object):
 
         if self.args.destination == 'source':
             self.save_results_to_source()
+        elif self.args.destination == 'local':
+            self.save_results_to_local()
         elif self.args.destination == 'aws_s3':
             self.save_results_to_s3()
 
@@ -847,6 +891,7 @@ class WaterSystem(object):
                                                  'layout': {
                                                      'class': 'results', 'sources': self.scenario.base_ids,
                                                      'tags': self.scenario.tags,
+                                                     'run': self.args.run_name,
                                                      'modified_date': mod_date,
                                                      'modified_by': self.args.user_id
                                                  }
@@ -854,7 +899,7 @@ class WaterSystem(object):
         else:
             result_scenario['layout'].update({
                 'modified_date': mod_date,
-                'modified_by': self.args.user_id
+                'modified_by': self.args.user_id,
             })
 
             self.conn.call('update_scenario', {
@@ -908,7 +953,7 @@ class WaterSystem(object):
                                                                self.scenario.name)
 
                 if tattr['dimension'] == 'Temperature':
-                    continue # TODO: fix this!!!
+                    continue  # TODO: fix this!!!
 
                 rs = {
                     'resource_attr_id': res_attr_id,
@@ -951,88 +996,125 @@ class WaterSystem(object):
                 self.scenario.reporter.report(action='error', message=msg)
             raise
 
-    def save_results_to_s3(self):
-
-        import boto3
-        s3 = boto3.client('s3')
+    # def save_results_to_s3(self):
+    #
+    #     import boto3
+    #     s3 = boto3.client('s3')
+    #
+    #     if len(self.scenario.base_ids) == 1:
+    #         o = s = self.scenario.base_ids[0]
+    #     else:
+    #         o, s = self.scenario.base_ids
+    #     base_path = 'results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
+    #         project=self.network.project_id,
+    #         network=self.network.id,
+    #         run=self.args.start_time,
+    #         scenario='O{}-S{}'.format(o, s),
+    #         subscenario=self.metadata['number'])
+    #
+    #     # save variable data to database
+    #     res_scens = []
+    #     res_names = {}
+    #
+    #     try:
+    #
+    #         # write metadata
+    #         content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': ')).encode()
+    #         s3.put_object(Body=content, Bucket='openagua.org', Key=base_path + '/metadata.json')
+    #
+    #         count = 1
+    #         pcount = 1
+    #         nparams = len(self.store)
+    #         path = base_path + '/data/{parameter}.csv'
+    #         for param_name, param_values in self.store.items():
+    #             pcount += 1
+    #             df = self.param_to_df(param_name, param_values)
+    #             content = df.to_csv().encode()
+    #
+    #             if content:
+    #                 s3.put_object(Body=content, Bucket='openagua.org', Key=path.format(parameter=param_name))
+    #
+    #             if count % 10 == 0 or pcount == nparams:
+    #                 if self.scenario.reporter:
+    #                     self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
+    #             count += 1
+    #
+    #     except:
+    #         msg = 'ERROR: Results could not be saved.'
+    #         # self.logd.info(msg)
+    #         if self.scenario.reporter:
+    #             self.scenario.reporter.report(action='error', message=msg)
+    #         raise
+    #
+    def save_results_to_local(self):
 
         if len(self.scenario.base_ids) == 1:
             o = s = self.scenario.base_ids[0]
         else:
             o, s = self.scenario.base_ids
-        base_path = 'results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
+        base_path = './results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
             project=self.network.project_id,
             network=self.network.id,
             run=self.args.start_time,
             scenario='O{}-S{}'.format(o, s),
             subscenario=self.metadata['number'])
 
-        # save variable data to database
-        res_scens = []
-        res_names = {}
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+
+        res_names = {
+            'node': {n.id: n.name for n in self.network.nodes},
+            'link': {l.id: l.name for l in self.network.links}
+        }
 
         try:
 
             # write metadata
-            content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': ')).encode()
-            s3.put_object(Body=content, Bucket='openagua.org', Key=base_path + '/metadata.json')
+            with open('{}/metadata.json'.format(base_path), 'w') as f:
+                json.dump(self.metadata, f, sort_keys=True, indent=4, separators=(',', ': '))
 
             count = 1
             pcount = 1
-            nparams = len(self.results)
+            nparams = len(self.store)
             path = base_path + '/data/{parameter}.csv'
-            for param_name, param_values in self.results.items():
+            results = {}
+            for key, values in self.store.items():
                 pcount += 1
+
+                res_type, res_id, attr_id = key.split('/')
+                res_id = int(res_id)
+                attr_id = int(attr_id)
+
+                tattr = self.conn.tattrs.get((res_type, res_id, attr_id))
+                if not tattr:
+                    # Same as previous issue.
+                    # This is because the model assigns all resource attribute possibilities to all resources of like type
+                    # In practice this shouldn't make a difference, but may result in a model larger than desired
+                    # TODO: correct this
+                    continue
+                param_name = get_param_name(res_type, tattr['attr_name'])
+
                 if param_name not in self.params:
                     continue  # it's probably an internal variable/parameter
-                resource_type = self.params[param_name]['resource_type']
-                ta = self.params[param_name]['type_attr']
-                attr_id = ta['attr_id']
 
-                tattr = self.conn.tattrs[resource_type][attr_id]
-
-                # reorganize values as stored by Pyomo to resource attributes
-                # pid = Pyomo resource attribute id
-                # create datasets from values
-                df_all = pd.DataFrame()
-
-                # dataset_values = {}
-                for idx, values in param_values.items():
-                    idx = type(idx) == tuple and list(idx) or [idx]  # needed to concatenate with the attribute name
-                    if resource_type == 'node':
-                        n = 1
-                        pid = (idx[0], ta['attr_name'])
-                        res_name = self.nodes[pid[0]]['name']
-                    elif resource_type == 'link':
-                        n = 2
-                        pid = (idx[0], idx[1], ta['attr_name'])
-                        res_name = self.links[pid[:n]]['name']
+                res_name = res_names.get(res_type, {}).get(res_id) or self.network.name
+                try:
+                    data = pd.DataFrame.from_dict(values, orient='index', columns=[res_name])
+                    if param_name not in results:
+                        results[param_name] = data
                     else:
-                        # TODO: Include Network resource data here
-                        continue
+                        results[param_name] = pd.concat([results[param_name], data], axis=1, sort=True)
+                except:
+                    continue
 
-                    if pid not in self.conn.res_attr_lookup[resource_type]:
-                        continue
+            for param_name, data in results.items():
 
-                    # has_blocks = ta.properties.get('has_blocks') \
-                    # or resource_type == 'node' and len(idx) == 2 \
-                    # or resource_type == 'link' and len(idx) == 3
-
-                    # if has_blocks:
-                    # block = 0 if len(idx) == n else idx[n]
-                    # df = pd.DataFrame.from_dict({(res_name, block): values})
-                    # else:
-                    df = pd.DataFrame.from_dict({res_name: values})
-                    df_all = pd.concat([df_all, df], axis=1)
-
-                # summed = df_all.groupby(axis=1, level=0).sum()
-                content = df_all.to_csv().encode()
-
-                s3.put_object(Body=content, Bucket='openagua.org', Key=path.format(parameter=param_name))
+                if not data.empty:
+                    data.to_csv('{}/{}.csv'.format(base_path, param_name))
 
                 if count % 10 == 0 or pcount == nparams:
                     if self.scenario.reporter:
-                        self.scenario.reporter.report(action='save', progress=100,
+                        self.scenario.reporter.report(action='save',
                                                       saved=round(count / (self.nparams + self.nvars) * 100))
                 count += 1
 
