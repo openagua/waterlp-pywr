@@ -377,7 +377,7 @@ class Evaluator:
         detail = None
         value = None
 
-        hashkey = hashlib.sha224(str.encode(code_string)).hexdigest()
+        hashkey = hashlib.sha224(str.encode(code_string + str(data_type))).hexdigest()
 
         # check if we already know about this function so we don't
         # have to do duplicate (possibly expensive) execs

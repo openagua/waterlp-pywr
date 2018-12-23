@@ -108,7 +108,7 @@ def create_crosswise_subscenarios(network, template, scenario, scenario_type):
     values_lookup = {}
     resources_lookup = {}
     for variation in variations:
-        values_lookup[variation['id']] = get_variation_values(variation)
+        values_lookup[variation['id']] = make_levels(variation)
         resources_lookup[variation['id']] = get_resources(network, template, scenario, variation)
 
     def update_variations(obj=None):

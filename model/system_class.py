@@ -92,8 +92,8 @@ class WaterSystem(object):
                  session=None, reporter=None, scenario=None):
 
         # Both of these are now converted to cubic meters (per time step)
-        self.VOLUMETRIC_FLOW_RATE_CONST = 0.0864 * 0.0283168  # = 60 * 60 * 24 / 1e6
-        self.TAF_TO_VOLUME = 43.56 * 0.0283168  # = 1e3 * 43560 / 1e6  # NOTE: model units are TAF, not AF
+        self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
+        self.TAF_TO_VOLUME = 1e3 * 43560 / 1e6  # NOTE: model units are TAF, not AF
 
         self.conn = conn
         self.session = session
