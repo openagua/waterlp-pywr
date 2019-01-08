@@ -30,7 +30,7 @@ Hydra Platform provides a database model (schema) that organizes water system in
 
 In addition to organizing the network, Hydra Platform also stores data values associated with resources and their attributes. These may be as scalars, time series, arrays, or descriptors.
 
-**IMPORTANT**: Though Hydra Platform stores primary data (scalars, time series, etc.), OpenAgua introduces the concept of *functions*. These functions are essentially Python functions, which return a value in any given time step. This concept--and examples--are discussed below. Documentation about the functions, which are not unique to the SFWSM, can be found at [https://openagua.github.io/waterlp-general] (as with the general OpenAgua documentation, this is a work-in-progress).
+**IMPORTANT**: Though Hydra Platform stores primary data (scalars, time series, etc.), OpenAgua introduces the concept of *functions*. These functions are essentially Python functions, which return a value in any given time step. This concept--and examples--are discussed below. Documentation about the functions, which are not unique to the SFWSM, can be found at [https://openagua.github.io/waterlp-general](https://openagua.github.io/waterlp-general) (as with the general OpenAgua documentation, this is a work-in-progress).
 
 The database model also has *scenarios* to organize data that might change under different conditions or assumptions. Scenarios may be used for organizing both input and output. In the OpenAgua interface, scenarios are (currently) organized as *options*, *portfolios*, and *scenarios*, where options are management interventions and scenarios are external conditions (e.g., climate).
 
