@@ -1,27 +1,47 @@
 # Overview
 
-The San Francisco Water System Model (SFWSM) brings together several existing tools, new methods, and tools to create a model and model platform for the San Francisco Public Utilities Commission (SFPUC) water supply system. This wiki describes 1) these tools and how they work together (the SFWSM structure), 2) the general modeling logic, 3) how SFWSM interacts with other modules related to the Vulnerability Assessment and 4) how to use the SFWSM online and locally. It also links to other relevant documentation.
+The San Francisco Water System Model (SFWSM) brings together several methods and tools to create a comprehensive modeling platform for the San Francisco Public Utilities Commission (SFPUC) water supply system. This describes these tools generally, indicates where to go for further reading, and gives some specific examples of San Francisco-specific modeling logic.
 
 # SFWSM structure
 
-The SFWSM is comprised of 1) a data storage service (Hydra Platform) for input and output, 2) generalized system modeling logic and code, and 3) a graphical user interface to facilitate interacting with the data and model (OpenAgua). Though the GUI is useful, it is not strictly necessary to interact with the model (though doing so will be difficult without at least some graphical tool). However, the data storage service is strictly necessary as of writing.
+The SFWSM is comprised of:
+1. a data management system for organizing the water system network storing data
+2. generalized modeling logic and code
+3. facility-specific modeling logic and code
+4. a graphical user interface (GUI) accessed via [OpenAgua](www.openagua.org), to facilitate interacting with the data and model.
 
-## Hydra Platform
+Though the GUI is useful, it is not strictly necessary to run the model, or even edit data. However, the data storage service is strictly necessary as of writing, and editing data without the GUI would be difficult and is beyond the scope of this readme. Because of the importance of the GUI in practice, OpenAgua is discussed generally first, followed by data management and modeling details.
 
-Hydra Platform is a data management service developed by the water resources group at the University of Manchester and has several essential functions. First, it provides a database model (schema) that organizes water system information in a manner conducive to modeling. Specifically, the database schema organizes water systems into discrete networks, which are comprised of connected nodes (e.g., reservoirs, treatment plants, etc.) and links (e.g., rivers, pipelines, etc.). Each network "resource" (node, link, or the network as a whole), has one or more "attribute" (e.g., "reservoir capacity"), which may also be considered as variables. The whole network may also have variables attached to it, such as climate conditions or any generic variable that cannot be ascribed to a specific individual facility. The database model also allows for scenarios to organize data that might change under different conditions or assumptions. Scenarios may be used for organizing both input and output. In addition to these basic database components, a wide range of supporting database objects and extensions exist to facilitate modeling, such as units (e.g., "cubic feet per second"), variable type (e.g., "timeseries" or "scalar"), and so on.
+# OpenAgua
 
-Second, Hydra Platform provides a web service to interact with the database with convenience functions. Functions include, for example, the ability to add/modify/delete networks, nodes, links, scenarios, and data. Hydra Platform also has a user management system, with login and permissions, facilitated by the web service. The implication is that multiple users and multiple applications can interact with the database. This allows, for example, a GUI to view and/or edit water system data, and a code-only tool to read data from the database to run a model. The multi-user aspect enables online collaboration, so that, for example, researchers at UMass can view the same data online as staff at SFPUC, provided a GUI exists to do so.
+[OpenAgua](https://www.openagua.org) is a web-based application to facilitate interacting with water system data and models. The purpose of OpenAgua is to be able to view/edit water system data online, run models, and visualize model results. Aside from logging into and using OpenAgua at www.openagua.org, the [OpenAgua documentation](http://docs.openagua.org) is the best place to learn more, although it is a work-in-progress.
 
-## Model
-[description of model as it interacts with Hydra; model logic is below]
+# Data management
 
-## OpenAgua
+Data is stored in three places in the SFWSM:
 
-OpenAgua is a web-based application to facilitate interacting with water system data, as organized by and accessed with Hydra Platform, and models.
+1. a database managed by **Hydra Platform**, a data management service developed by the water resources group at the University of Manchester
+2. a database managed by **OpenAgua**
+3. data files such as CSV files stored on **Amazon Web Services S3**.
 
-[docs.openagua.org](http://docs.openagua.org)
+## Hydra Platform data
 
-[to be continued...]
+Hydra Platform provides a database model (schema) that organizes water system information in a manner conducive to modeling. Specifically, the database schema organizes water systems into discrete networks, which are comprised of connected nodes (e.g., reservoirs, treatment plants, etc.) and links (e.g., rivers, pipelines, etc.). Each network *resource* (node, link, or the network as a whole), has one or more *attributes* (e.g., "reservoir capacity"), which may also be called *variables*. The whole network may also have variables attached to it, such as climate conditions or any generic variable that cannot be ascribed to a specific individual facility.
+
+In addition to organizing the network, Hydra Platform also stores data values associated with resources and their attributes. These may be as scalars, time series, arrays, or descriptors.
+
+**IMPORTANT**: Though Hydra Platform stores primary data (scalars, time series, etc.), OpenAgua introduces the concept of *functions*. These functions are essentially Python functions, which return a value in any given time step. This concept--and examples--are discussed below. Documentation about the functions, which are not unique to the SFWSM, can be found at [https://openagua.github.io/waterlp-general] (as with the general OpenAgua documentation, this is a work-in-progress).
+
+The database model also has *scenarios* to organize data that might change under different conditions or assumptions. Scenarios may be used for organizing both input and output. In the OpenAgua interface, scenarios are (currently) organized as *options*, *portfolios*, and *scenarios*, where options are management interventions and scenarios are external conditions (e.g., climate).
+
+Hydra Platform also provides a web API to create and edit data. Though this is not elaborated on here, this API is used, for example, when running a model.
+
+## OpenAgua data
+
+OpenAgua stores supplemental data in addition to core network structure and dataset values. Example supplemental data includes:
+
+* Chart/table information for viewing results and saving favorite results
+* Model run information, to connect the generalized model engine with OpenAgua
 
 # Modeling logic
 
@@ -39,23 +59,25 @@ To the extent possible, specific modeling logic is not included in this generali
 
 That modeling logic is described in a [separate Google Doc](https://docs.google.com/document/d/19qTpzT-JEKpwmsF28UgYSVeF0gQW1batZOGd7pwBsF8/edit?usp=sharing)
 
-## Interaction with other modules
+### Examples
 
-# How to use
+# Running the model
 
-## Online (via OpenAgua)
-(refer to OA documentation)
+There are three ways to set up the model: from the OpenAgua interface, with the command line interface, and with a Python integrated development environment.
 
-### Create account, etc.
-### View/edit data
-### Run a model
-### View/save results
+## from within OpenAgua
 
-## Offline (without OpenAgua)
+This mode is used when the model will be run using the OpenAgua interface, the most likely scenario.
 
-### Setup
+## with the command line interface (CLI)
 
-### Use with command line interface (CLI)
+This mode is likely seldom used, but nonetheless can be necessary, such as when running the model via SSH.
 
-### Use with Python IDE
-(example from PyCharm)
+## with a Python Integrated Development Environment
+
+This mode is most likely used when developing the generalized model logic and debugging the facility-specific logic.
+
+# Installation
+
+Installation partly depends on how the model will be run, as described above.
+
