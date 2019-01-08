@@ -71,23 +71,22 @@ That modeling logic is described in a [separate Google Doc](https://docs.google.
 
 ### Examples
 
+The implementation of several representative (and important) water system operations are described here. The purpose is to supplement the generalized water system operation [documentation](https://openagua.github.io/waterlp-general) with SFPUC-specific examples.
+
+#### Reservoir storage demand for Hetch Hetchy
+
+#### Water demand for a SFPUC wholesale customer
+
+#### Environmental flow requirement at La Grange
+
+#### Hydropower operations for Kirkwood Powerhouse
+
 # Running the model
 
-There are three ways to set up the model: from the OpenAgua interface, with the command line interface, and with a Python integrated development environment.
+In most cases you will run the model simply by clicking a "run" button in OpenAgua. However, there  are multiple ways to set up the model to run it in other ways, such as from a development computer.
 
-## from within OpenAgua
+If you are an administrative user, or otherwise interested in running the model in a more manual mode, please see the [installation instructions](https://github.com/openagua/waterlp-general/blob/master/README.md) for the generalized model engine on GitHub.
 
-This mode is used when the model will be run using the OpenAgua interface, the most likely scenario.
+# Contributing
 
-## with the command line interface (CLI)
-
-This mode is likely seldom used, but nonetheless can be necessary, such as when running the model via SSH.
-
-## with a Python Integrated Development Environment
-
-This mode is most likely used when developing the generalized model logic and debugging the facility-specific logic.
-
-# Installation
-
-Installation partly depends on how the model will be run, as described above.
-
+Is this section needed?
