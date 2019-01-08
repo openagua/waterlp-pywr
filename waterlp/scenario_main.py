@@ -3,10 +3,10 @@ from io import StringIO
 
 from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
 
-from model import create_model
-from post_reporter import Reporter as PostReporter
-from ably_reporter import AblyReporter
-from screen_reporter import ScreenReporter
+from waterlp.pywr_model import create_model
+from waterlp.post_reporter import Reporter as PostReporter
+from waterlp.ably_reporter import AblyReporter
+from waterlp.screen_reporter import ScreenReporter
 
 current_step = 0
 total_steps = 0

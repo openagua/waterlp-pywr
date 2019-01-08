@@ -6,7 +6,7 @@ from pywr.recorders import NumpyArrayNodeRecorder
 # create the model
 def create_model(network, template, start, end, ts, params, debug_gain=False, debug_loss=False):
 
-    input_types = ['Inflow Node', 'Catchment']
+    input_types = ['Inflow Node', 'Catchment', 'Misc Source']
     output_types = ['Outflow Node', 'Urban Demand', 'General Demand']
     storage_types = ['Reservoir', 'Groundwater']
 
@@ -99,18 +99,26 @@ def create_model(network, template, start, end, ts, params, debug_gain=False, de
     for link_id, link_trait in link_lookup_id.items():
         up_node = link_trait['node_1_id']
         down_node = link_trait['node_2_id']
+
+        # connect non-storage nodes to non-storage nodes
         if node_lookup_id[up_node]['type'] not in storage_types and \
                 node_lookup_id[down_node]['type'] not in storage_types:
             non_storage[up_node].connect(pywr_links[link_id])
             pywr_links[link_id].connect(non_storage[down_node])
+
+        # connect storage nodes to non-storage nodes
         elif node_lookup_id[up_node]['type'] in storage_types and \
                 node_lookup_id[down_node]['type'] not in storage_types:
             storage[up_node].connect(pywr_links[link_id], from_slot=link_trait['from_slot'])
             pywr_links[link_id].connect(non_storage[down_node])
+
+        # connect non-storage nodes to storage nodes
         elif node_lookup_id[up_node]['type'] not in storage_types and \
                 node_lookup_id[down_node]['type'] in storage_types:
             non_storage[up_node].connect(pywr_links[link_id])
             pywr_links[link_id].connect(storage[down_node], to_slot=link_trait['to_slot'])
+
+        # connect storage nodes to storage nodes
         else:
             storage[up_node].connect(pywr_links[link_id], from_slot=link_trait['from_slot'])
             pywr_links[link_id].connect(storage[down_node], to_slot=link_trait['to_slot'])
