@@ -57,17 +57,37 @@ The general modeling approach for the SFWSM (and OpenAgua generally) is to use a
 
 ## Generalized model logic
 
-* LP
-* Zero foresight with option of adding foresight
-* Core concepts...
-* Refer to paper writeup & other documentation
-* Links to code (this repository)
+The water allocation routine consists of a benefit-maximizing linear programming model. The generalized logic, which includes a fairly standard set of facility types, operational decision variables, and constraints, is derived from that described in detail for the default OpenAgua model generally at https://openagua.github.io/waterlp-general/allocation-logic/.
 
-## Specific modeling logic
+The generalized logic is set up in such a way that only one file changes between the default OpenAgua model logic and that of the SFWSM. Specifically, it is the `model.py` file (https://projects.cloudwaterlab.com/UMass/SFPUC/water-system-model/blob/master/model/model.py) in the source model that differs somewhat.
 
-To the extent possible, specific modeling logic is not included in this generalized code, but rather entered into the Hydra database via the OpenAgua GUI.
+The difference between the OpenAgua default model and that of the SFWSM is not major, however, consisting primarily of new facility types that do not currently have any modeling significance. For example, whereas the default OpenAgua model includes generic *conveyances*, the SFWSM includes *pipelines*, *tunnels* and *aqueducts*.
 
-That modeling logic is described in a [separate Google Doc](https://docs.google.com/document/d/19qTpzT-JEKpwmsF28UgYSVeF0gQW1batZOGd7pwBsF8/edit?usp=sharing)
+**TODO**: More specific SFWSM deviations will be documented here.
+
+## Facility-specific modeling logic
+
+Facility-specific modeling logic is defined by populating variables with data specific to the RWS. However, populating this data is not trivial, and represents the core modeling task that makes the SFWSM simulated water operations in a meaningful way. There are several model customization and logic definition tasks worth highlighting.
+
+### Network schematic
+
+The network schematic, which defines system resource types and how they are connected, is edited manually via the OpenAgua GUI.
+
+### Resource types variable definition
+
+System resource types and their variables (*attributes* in Hydra Platform) are modified as needed in the OpenAgua template editor, as [described here](https://docs.openagua.org/how-to-use/user-guide/configuration/network-templates). The template editor is where new variables may be added to a resource type, and where new global variables can be defined. Global variables are particularly valuable, and are quite flexible. For example, a global variable called *climate_realization* can (and will!) be added to specify the climate realization used for a particular model run.
+
+When editing variables, it is important to correctly identify their scope and other parameters (see template documentation), as defining a variable incorrectly can lead to unintended modeling outcomes.
+
+**Important**: The generalized model is built completely independently from the resource types and variables described within OpenAgua (i.e., within Hydra Platform). For this reason, it is critical that the resource types and variables match with what the model expects. The practical implication of this is that you can add a variable, but it might not mean anything in the model. Conversely, deleting a variable in the SFWSM template can result in an error in the model if the generalized model expects that variable. Conversely, the generalized model is set up in such a way that any arbitrary new resource type (e.g., *Groundwater Recharge Area*) will be accounted for in the system structure, and likely not cause any error. (Having said that, you should probably not add/delete resource types unless you know what you are doing.)
+
+### Facility-specific data
+
+Entering facility-specific data is generally done through the OpenAgua interface, although the Hydra Platform API can also be used to add/edit/delete data.
+
+See the main OpenAgua documentation for how to [view and edit data](https://docs.openagua.org/how-to-use/user-guide/setup-model/view-edit-data).
+
+Operational logic for spacific facilities is described in a [separate Google Doc](https://docs.google.com/document/d/19qTpzT-JEKpwmsF28UgYSVeF0gQW1batZOGd7pwBsF8/edit?usp=sharing)
 
 ### Examples
 
@@ -83,10 +103,12 @@ The implementation of several representative (and important) water system operat
 
 # Running the model
 
-In most cases you will run the model simply by clicking a "run" button in OpenAgua. However, there  are multiple ways to set up the model to run it in other ways, such as from a development computer.
+In most cases you will run the model simply by clicking a "run" button in OpenAgua. This entails setting up a new model run, as [described here](https://docs.openagua.org/how-to-use/user-guide/running-models).
 
-If you are an administrative user, or otherwise interested in running the model in a more manual mode, please see the [installation instructions](https://github.com/openagua/waterlp-general/blob/master/README.md) for the generalized model engine on GitHub.
+There are multiple ways to set up the model to run it in other ways, such as from a development computer. If you are an administrative user, or otherwise interested in running the model in a more manual mode, please see the [installation instructions](https://github.com/openagua/waterlp-general/blob/master/README.md) for the generalized model engine on GitHub.
+
+Once a model is run, the results may be viewed as described in the main [OpenAgua documentation](https://docs.openagua.org/how-to-use/user-guide/view-export-results).
 
 # Contributing
 
-Is this section needed?
+**TODO**: Add note on development and link to OpenAgua documentation.
