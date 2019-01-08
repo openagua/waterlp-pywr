@@ -7,10 +7,10 @@ Note that this does not describe facility-specific operational logic of the SFWS
 # SFWSM structure
 
 The SFWSM is comprised of:
-1. a data management system for organizing the water system network and storing data
-2. generalized modeling logic and code
-3. facility-specific modeling logic and code
-4. a graphical user interface (GUI) accessed via [OpenAgua](www.openagua.org), to facilitate interacting with the data and model.
+1. a **data management system** for organizing the water system network and storing data
+2. **generalized modeling logic** and code
+3. **facility-specific modeling logic** and code
+4. a **graphical user interface** (GUI) accessed via [OpenAgua](www.openagua.org), to facilitate interacting with the data and model.
 
 Though the GUI is useful, it is not strictly necessary to run the model, or even edit data. However, the data storage services are necessary as of writing, and editing data without the GUI would be difficult, and describing how to do so is beyond the scope of this readme. Because of the importance of the GUI in practice, OpenAgua is described generally first, followed by data management and modeling details.
 
