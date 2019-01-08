@@ -2,7 +2,7 @@
 
 The San Francisco Water System Model (SFWSM) brings together several methods and tools to create a comprehensive modeling platform for the San Francisco Public Utilities Commission (SFPUC) water supply system. This describes these tools generally, indicates where to go for further reading, and gives some specific examples of San Francisco-specific modeling logic.
 
-Note that this does not describe the specific operational logic of the facility.
+Note that this does not describe facility-specific operational logic of the SFWSM.
 
 # SFWSM structure
 
