@@ -4,9 +4,10 @@ import sys
 import traceback
 from copy import copy
 from numpy import mean
-from math import isnan
+from math import isnan, log
+import pandas
+from calendar import isleap
 
-import pandas as pd
 import pendulum
 
 myfuncs = {}
@@ -21,19 +22,31 @@ EMPTY_VALUES = {
 
 
 def get_scenarios_data(conn, scenario_ids, **kwargs):
-    evaluator = Evaluator(conn, settings=kwargs['settings'], data_type=kwargs['data_type'])
+    evaluator = Evaluator(
+        conn,
+        settings=kwargs.get('settings'),
+        data_type=kwargs.get('data_type'),
+        nblocks=kwargs.get('nblocks'),
+    )
 
     scenarios_data = []
     for i, scenario_id in enumerate(scenario_ids):
         evaluator.scenario_id = scenario_id
         scenario_data = get_scenario_data(evaluator, **kwargs)
+
+        # scenario_data['note'] = ''
+
         if scenario_data['data'] is None and i:
             scenario_data = copy(scenarios_data[i - 1])
             scenario_data.update({
                 'id': scenario_id,
                 'data': None,
-                'error': 2
+                'error': 2,
             })
+
+        elif scenario_data['data']:
+            scenario_data['note'] = scenario_data['data']['value']['metadata'].get('note', '')
+
         scenarios_data.append(scenario_data)
 
     return scenarios_data
@@ -53,8 +66,19 @@ def get_scenario_data(evaluator, **kwargs):
             do_eval=False,
             date_format=evaluator.date_format
         )
-        if eval_value is None:
-            eval_value = evaluator.default_timeseries
+        if not eval_value:
+            if evaluator.data_type:
+                eval_value = evaluator.default_timeseries
+            else:
+                evaluator.data_type = res_attr_data.value.type
+                evaluator.default_timeseries = make_default_value(
+                    data_type=evaluator.data_type, dates=evaluator.dates_as_string, nblocks=1)
+                eval_value = evaluator.default_timeseries
+
+        metadata = json.loads(res_attr_data['value']['metadata'])
+        metadata['use_function'] = metadata.get('use_function', 'N')
+        # metadata['function'] = metadata.get('function', '')
+        res_attr_data['value']['metadata'] = metadata
 
         scenario_data = {
             'data': res_attr_data,
@@ -63,7 +87,15 @@ def get_scenario_data(evaluator, **kwargs):
         }
 
     else:
-        scenario_data = {'data': None, 'eval_value': evaluator.default_timeseries, 'error': 1}
+        data_type = kwargs.get('data_type')
+        if data_type in ['timeseries', 'periodic timeseries']:
+            eval_value = evaluator.default_timeseries
+        elif data_type == 'array':
+            eval_value = evaluator.default_array
+        else:
+            eval_value = None
+
+        scenario_data = {'data': None, 'eval_value': eval_value, 'error': 1}
 
     scenario_data['id'] = evaluator.scenario_id
 
@@ -77,14 +109,14 @@ def empty_data_timeseries(dates, nblocks=1, date_format='iso', flavor='json'):
         if flavor == 'json':
             vals = {str(b): values for b in range(nblocks)}
             if date_format == 'iso':
-                timeseries = pd.DataFrame(vals, index=dates).to_json(date_format='iso')
+                timeseries = pandas.DataFrame(vals, index=dates).to_json(date_format='iso')
             elif date_format == 'original':
-                timeseries = pd.DataFrame(vals, index=dates)
+                timeseries = pandas.DataFrame(vals, index=dates)
         elif flavor == 'pandas':
-            timeseries = pd.DataFrame(values, columns=range(nblocks), index=dates)
+            timeseries = pandas.DataFrame(values, columns=range(nblocks), index=dates)
         else:
             vals = {b: values for b in range(nblocks)}
-            timeseries = pd.DataFrame(vals, index=dates).to_dict()
+            timeseries = pandas.DataFrame(vals, index=dates).to_dict()
         return timeseries
     except:
         raise
@@ -121,11 +153,11 @@ def eval_descriptor(s):
 def eval_timeseries(timeseries, dates, fill_value=None, flatten=False, has_blocks=False, method=None, flavor=None,
                     date_format='iso'):
     try:
-        df = pd.read_json(timeseries)
+        df = pandas.read_json(timeseries)
         if df.empty:
-            df = pd.DataFrame(index=dates, columns=['0'])
+            df = pandas.DataFrame(index=dates, columns=['0'])
         else:
-            # df = df.reindex(pd.DatetimeIndex(dates))
+            # df = df.reindex(pandas.DatetimeIndex(dates))
             if fill_value is not None:
                 df.fillna(value=fill_value, inplace=True)
             elif method:
@@ -147,9 +179,16 @@ def eval_timeseries(timeseries, dates, fill_value=None, flatten=False, has_block
         raise
 
 
-def eval_array(array):
+def eval_array(array, flavor=None):
+    result = None
     try:
-        result = json.loads(array)
+        temp = json.loads(array)
+        if flavor is None:
+            result = array
+        elif flavor == 'list':
+            result = temp
+        elif flavor == 'pandas':
+            result = pandas.DataFrame(temp)
         returncode = 0
         errormsg = 'No errors!'
     except:
@@ -160,12 +199,15 @@ def eval_array(array):
     return returncode, errormsg, result
 
 
-def parse_function(s, name, argnames, modules=()):
+def parse_function(s, name, argnames):
     '''Parse a function into usable Python'''
     spaces = '\n    '
 
     # modules
-    modules = spaces.join(modules)
+    # modules = spaces.join('import {}'.format(m) for m in modules)
+
+    # functions
+    # functions = spaces.join(['{func} = self.{func}'.format(func=f) for f in functions])
 
     # getargs (these pass to self.GET)
     kwargs = spaces.join(['{arg} = kwargs.get("{arg}")'.format(arg=arg) for arg in argnames])
@@ -178,8 +220,8 @@ def parse_function(s, name, argnames, modules=()):
     code = spaces.join(lines)
 
     # final function
-    func = '''def {name}(self, **kwargs):{spaces}{modules}{spaces}{kwargs}{spaces}{code}''' \
-        .format(spaces=spaces, modules=modules, kwargs=kwargs, code=code, name=name)
+    func = '''def {name}(self, **kwargs):{spaces}{kwargs}{spaces}{spaces}{code}''' \
+        .format(spaces=spaces, kwargs=kwargs, code=code, name=name)
 
     return func
 
@@ -192,41 +234,72 @@ def make_dates(settings, date_format=True, data_type='timeseries'):
 
     dates = []
 
-    if start and end:
-        period = pendulum.period(pendulum.parse(start), pendulum.parse(end))
+    if start and end and timestep:
+        start_date = pendulum.parse(start)
+        end_date = pendulum.parse(end)
+        timestep = timestep.lower()
 
-        if timestep in ['day', 'week', 'month']:
-            dates = period.range("{}s".format(timestep))
+        if data_type == 'periodic timeseries':
+            start_date = pendulum.datetime(9998, 1, 1)
+            end_date = pendulum.datetime(9998, 12, 31, 23, 59)
+
+        period = pendulum.period(start_date, end_date)
+
+        periodic_timesteps = []
+        if timestep == 'day':
+            dates = period.range("days")
+            pt = 0
+            for i, date in enumerate(dates):
+                if (date.month, date.day) == (start_date.month, start_date.day):
+                    pt = 1
+                else:
+                    pt += 1
+                periodic_timesteps.append(pt)
+        elif timestep == 'week':
+            year = start_date.year
+            dates = []
+            for i in range(52 * (end_date.year - start_date.year)):
+                if i == 0:
+                    date = start_date
+                else:
+                    date = dates[-1].add(days=7)
+                if isleap(date.year) and date.month == 3 and date.day == 4:
+                    date = date.add(days=1)
+                if date.month == 12 and date.day == 31:
+                    date = date.add(days=1)
+                dates.append(date)
+                periodic_timesteps.append(i % 52 + 1)
+        elif timestep == 'month':
+            dates = period.range("months")
+            periodic_timesteps = [i % 12 + 1 for i, date in enumerate(dates)]
         elif timestep == 'thricemonthly':
             dates = []
-            start = pendulum.parse(start)
-            end = pendulum.parse(end)
-            period = pendulum.period(start, end)
             for dt in period.range('months'):
                 d1 = pendulum.datetime(dt.year, dt.month, 10)
                 d2 = pendulum.datetime(dt.year, dt.month, 20)
                 d3 = dt.last_of('month')
                 dates.extend([d1, d2, d3])
-
-        if data_type == 'periodic timeseries':
-            dates = [dt.replace(year=9999) for dt in dates if (dt - dates[0]).years == 0]
+            periodic_timesteps = [i % 36 + 1 for i, date in enumerate(dates)]
 
         dates_as_string = [date.to_datetime_string() for date in dates]
 
-        return dates_as_string, dates
+        return dates_as_string, dates, periodic_timesteps
 
     else:
-        return None, None
-
+        return None, None, None
 
 def make_default_value(data_type='timeseries', dates=None, nblocks=1, flavor='json', date_format='iso'):
     if data_type == 'timeseries':
-        default_eval_value = empty_data_timeseries(dates, flavor=flavor, date_format=date_format)
+        default_eval_value = empty_data_timeseries(dates, nblocks=nblocks, flavor=flavor, date_format=date_format)
     elif data_type == 'periodic timeseries':
         dates = [pendulum.parse(d) for d in dates]
         periodic_dates = [d.replace(year=9999).to_datetime_string() for d in dates if (d - dates[0]).in_years() < 1]
-        default_eval_value = empty_data_timeseries(periodic_dates, nblocks=nblocks, flavor=flavor,
-                                                   date_format=date_format)
+        default_eval_value = empty_data_timeseries(
+            periodic_dates,
+            nblocks=nblocks,
+            flavor=flavor,
+            date_format=date_format
+        )
     elif data_type == 'array':
         default_eval_value = '[[],[]]'
     else:
@@ -252,26 +325,39 @@ class namespace:
 
 
 class Evaluator:
-    def __init__(self, conn=None, scenario_id=None, settings=None, date_format=None,
-                 data_type='timeseries', nblocks=1):
+    def __init__(self, conn=None, scenario_id=None, settings=None, date_format='iso', data_type='timeseries', nblocks=1):
         self.conn = conn
-        self.dates_as_string, self.dates = make_dates(settings, data_type=data_type)
+        self.dates_as_string, self.dates, self.periodic_timesteps = make_dates(settings, data_type=data_type)
+        self.start_date = self.dates[0]
+        self.end_date = self.dates[-1]
         self.scenario_id = scenario_id
         self.data_type = data_type
         self.date_format = date_format
         self.default_timeseries = make_default_value('timeseries', self.dates_as_string, flavor='dict',
                                                      date_format='original')
         self.default_array = make_default_value('array')
-
-        self.namespace = namespace
+        self.resource_scenarios = {}
+        self.external = {}
 
         self.network_files_path = settings.get('network_files_path')
 
-        self.argnames = ['parentkey', 'depth', 'timestep', 'date',
-                         'flavor']  # arguments accepted by the function evaluator
+        self.namespace = namespace
+
+        # arguments accepted by the function evaluator
+        self.argnames = [
+            'parentkey',
+            'depth',
+            'timestep',
+            'periodic_timestep',
+            'date',
+            'start_date',
+            'end_date',
+            'water_year',
+            'flavor'
+        ]
+        self.modules = ['pandas', 'isnan', 'log']
 
         self.calculators = {}
-        self.external = {}
 
         # This stores data that can be referenced later, in both time and space.
         # The main purpose is to minimize repeated calls to data sources, especially
@@ -282,7 +368,7 @@ class Evaluator:
         self.hashstore = {}
 
     def eval_data(self, value, func=None, do_eval=False, flavor=None, depth=0, flatten=False, fill_value=None,
-                  date_format='iso', has_blocks=False, parentkey=None):
+                  date_format='iso', has_blocks=False, data_type=None, parentkey=None):
 
         try:
             # create the data depending on data type
@@ -296,7 +382,7 @@ class Evaluator:
             if func is None:
                 func = metadata.get('function')
             usefn = metadata.get('use_function', 'N') == 'Y'
-            data_type = value['type']
+            data_type = data_type or value['type']
 
             if parentkey not in self.store:
                 if data_type in ['timeseries', 'periodic timeseries']:
@@ -405,12 +491,34 @@ class Evaluator:
                 self.hashstore[hashkey] = [0 for d in self.dates]
             tsi = self.tsi
             tsf = self.tsf
-            for i, date in enumerate(self.dates[tsi:tsf]):
-                timestep = self.dates.index(date)
-                value = getattr(self.namespace, hashkey)(self, hashkey=hashkey, date=date, timestep=timestep + 1,
-                                                         depth=depth + 1, flavor=flavor, parentkey=parentkey)
+            for i, date_as_string in enumerate(self.dates_as_string[tsi:tsf]):
+                timestep = self.dates_as_string.index(date_as_string)
+                date = self.dates[timestep]
+                # value = getattr(self.namespace, hashkey)(
+                #     self,
+                #     hashkey=hashkey,
+                #     date=date,
+                #     timestep=timestep + 1,
+                #     depth=depth + 1,
+                #     flavor=flavor,
+                #     parentkey=parentkey
+                # )
 
-                date_as_string = date.to_datetime_string()
+                periodic_timestep = self.periodic_timesteps[timestep]
+                water_year = date.year + (0 if date.month < self.start_date.month else 1)
+                value = getattr(self.namespace, hashkey)(
+                    self,
+                    hashkey=hashkey,
+                    date=date,
+                    timestep=timestep + 1,
+                    periodic_timestep=periodic_timestep,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    water_year=water_year,
+                    depth=depth + 1,
+                    parentkey=parentkey
+                )
+
                 if type(value) == dict and date_as_string in value:
                     val = value.get(date_as_string)
                 else:
@@ -430,10 +538,10 @@ class Evaluator:
                 if type(values[0]) in (list, tuple):
                     cols = range(len(values[0]))
                     if flavor == 'json':
-                        result = pd.DataFrame.from_records(data=values, index=dates_idx,
+                        result = pandas.DataFrame.from_records(data=values, index=dates_idx,
                                                            columns=cols).to_json(date_format='iso')
                     elif flavor == 'pandas':
-                        result = pd.DataFrame.from_records(data=values, index=dates_idx, columns=cols)
+                        result = pandas.DataFrame.from_records(data=values, index=dates_idx, columns=cols)
                     else:
                         if has_blocks:
                             result = {c: {d: v[c] for d, v in zip(dates_idx, values)} for c in cols}
@@ -441,9 +549,9 @@ class Evaluator:
                             result = {d: v[0] for d, v in zip(dates_idx, values)}
                 else:
                     if flavor == 'json':
-                        result = pd.DataFrame(data=values, index=dates_idx).to_json(date_format='iso')
+                        result = pandas.DataFrame(data=values, index=dates_idx).to_json(date_format='iso')
                     elif flavor == 'pandas':
-                        result = pd.DataFrame(data=values, index=dates_idx)
+                        result = pandas.DataFrame(data=values, index=dates_idx)
                     else:
                         result = self.store.get(parentkey, {})
                         if has_blocks and not flatten:
@@ -468,7 +576,7 @@ class Evaluator:
         if exception:
             returncode = 1
             line_number -= 2
-            errormsg = "%s at line %d: %s" % (err_class, line_number, detail)
+            errormsg = "%s: %s" % (err_class, detail)
             result = None
         else:
             returncode = 0
@@ -477,6 +585,9 @@ class Evaluator:
         return returncode, errormsg, result
 
     def GET(self, key, **kwargs):
+        return self.get(key, **kwargs)
+
+    def get(self, key, **kwargs):
         '''
         This is used to get data from another variable, or another time step, possibly aggregated
         '''
@@ -534,6 +645,7 @@ class Evaluator:
                     depth=depth,
                     parentkey=key,
                     has_blocks=has_blocks,
+                    data_type=tattr.data_type, # NOTE: the type attribute data type overrides the actual value type
                     date_format='%Y-%m-%d %H:%M:%S'
                 )
 
@@ -603,7 +715,7 @@ class Evaluator:
                     if result is None:
 
                         if flavor == 'pandas':
-                            result = pd.DataFrame(value)
+                            result = pandas.DataFrame(value)
                         else:
                             result = value
 
@@ -631,7 +743,7 @@ class Evaluator:
             fill_method = kwargs.pop('fill_method', 'interpolate')
             interp_method = kwargs.pop('interp_method', None)
 
-            df = pd.read_csv(fullpath, **kwargs)
+            df = pandas.read_csv(fullpath, **kwargs)
 
             interp_args = {}
             if fill_method == 'interpolate':
@@ -649,3 +761,7 @@ class Evaluator:
             self.external[fullpath] = data
 
         return data
+
+    def call(self, *args, **kwargs):
+
+        return 0

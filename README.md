@@ -59,7 +59,7 @@ The general modeling approach for the SFWSM (and OpenAgua generally) is to use a
 
 The water allocation routine consists of a benefit-maximizing linear programming model. The generalized logic, which includes a fairly standard set of facility types, operational decision variables, and constraints, is derived from that described in detail for the default OpenAgua model generally at https://openagua.github.io/waterlp-general/allocation-logic/.
 
-The generalized logic is set up in such a way that only one file changes between the default OpenAgua model logic and that of the SFWSM. Specifically, it is the `model.py` file (https://projects.cloudwaterlab.com/UMass/SFPUC/water-system-model/blob/master/model/model.py) in the source model that differs somewhat.
+The generalized logic is set up in such a way that only one file changes between the default OpenAgua model logic and that of the SFWSM. Specifically, it is the `pyomo_model.py` file (https://projects.cloudwaterlab.com/UMass/SFPUC/water-system-model/blob/master/model/model.py) in the source model that differs somewhat.
 
 The difference between the OpenAgua default model and that of the SFWSM is not major, however, consisting primarily of new facility types that do not currently have any modeling significance. For example, whereas the default OpenAgua model includes generic *conveyances*, the SFWSM includes *pipelines*, *tunnels* and *aqueducts*.
 
