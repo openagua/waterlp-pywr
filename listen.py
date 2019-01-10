@@ -22,6 +22,9 @@ def callback(ch, method, properties, body):
 
 def start_listening(model_key):
     queue_name = 'model-{}'.format(model_key)
+    run_secret = os.environ.get('RUN_KEY')
+    if run_secret:
+        queue_name += '-{}'.format(run_secret)
     host = os.environ.get('RABBITMQ_HOST', 'localhost')
     if host == 'localhost':
         connection = pika.BlockingConnection(pika.ConnectionParameters(host=host))

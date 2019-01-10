@@ -155,7 +155,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         system.scenario.current_date = current_dates_as_string[0]
 
         if system.scenario.reporter:
-            system.scenario.reporter.report(action='step')
+            if ts == 0 or system.dates[ts].month != system.dates[ts-1].month or current_step == n:
+                system.scenario.reporter.report(action='step')
 
         # update the model instance
         if ts != runs[-1]:

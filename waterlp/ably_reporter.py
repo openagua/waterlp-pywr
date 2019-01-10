@@ -1,4 +1,7 @@
+from os import environ
 from ably import AblyRest
+import logging
+
 
 class AblyReporter(object):
 

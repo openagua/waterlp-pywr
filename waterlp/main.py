@@ -190,16 +190,11 @@ def commandline_parser():
     parser.add_argument('--user', dest='hydra_username', help='''The username for logging in to Hydra Server.''')
     parser.add_argument('--pw', dest='hydra_password',
                         help='''The password for logging in to Hydra Server.''')
-    parser.add_argument('--sid', dest='session_id',
-                        help='''The Hydra Server session ID.''')
-    parser.add_argument('--uid', dest='user_id', type=int,
-                        help='''The Hydra Server user_id.''')
-    parser.add_argument('--src', dest='source_id', type=int,
-                        help='''The source ID of the model to be run.''')
-    parser.add_argument('--nid', dest='network_id', type=int,
-                        help='''The network ID of the model to be run.''')
-    parser.add_argument('--tid', dest='template_id', type=int,
-                        help='''The template ID of the model to be run.''')
+    parser.add_argument('--sid', dest='session_id', help='''The Hydra Server session ID.''')
+    parser.add_argument('--uid', dest='user_id', type=int, help='''The Hydra Server user_id.''')
+    parser.add_argument('--src', dest='source_id', type=int, help='''The source ID of the model to be run.''')
+    parser.add_argument('--nid', dest='network_id', type=int, help='''The network ID of the model to be run.''')
+    parser.add_argument('--tid', dest='template_id', type=int, help='''The template ID of the model to be run.''')
     parser.add_argument('--scids', dest='scenario_ids',
                         help='''The IDs of the scenarios to be run,
                         specified as a string containing a comma-separated list of
@@ -213,12 +208,10 @@ def commandline_parser():
     parser.add_argument('--sol', dest='solver', default='glpk',
                         help='''The solver to use (e.g., glpk, gurobi, etc.).''')
     parser.add_argument('--fs', dest='foresight', default='zero', help='''Foresight: 'perfect' or 'imperfect' ''')
-    parser.add_argument('--purl', dest='post_url',
-                        help='''URL to ping indicating activity.''')
+    parser.add_argument('--purl', dest='post_url', help='''URL to ping indicating activity.''')
     parser.add_argument('--mp', dest='message_protocol', default=None,
                         help='''Message protocol to report progress back to client browser''')
-    parser.add_argument('--wurl', dest='websocket_url',
-                        help='''URL and port that is listening for activity.''')
+    parser.add_argument('--wurl', dest='websocket_url', help='''URL and port that is listening for activity.''')
     parser.add_argument('--guid', default=uuid.uuid4().hex, dest='unique_id',
                         help='''Unique identifier for this run.''')
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
