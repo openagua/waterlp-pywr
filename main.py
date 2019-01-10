@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 from ast import literal_eval
 import multiprocessing as mp
@@ -7,21 +9,18 @@ import uuid
 from datetime import datetime
 from functools import partial
 from itertools import product
-
-from connection import connection
-from system_class import WaterSystem
-from scenario_class import Scenario
-from post_reporter import Reporter as PostReporter
-
-from logger import create_logger
-from utils import create_subscenarios
-
 from copy import copy
 
-from scenario_main import run_scenario
+from waterlp.connection import connection
+from waterlp.system_class import WaterSystem
+from waterlp.scenario_class import Scenario
+from waterlp.post_reporter import Reporter as PostReporter
+from waterlp.logger import create_logger
+from waterlp.utils import create_subscenarios
+from waterlp.scenario_main import run_scenario
 
 
-def run_scenarios(args, log):
+def run_scenarios(args, log, **kwargs):
     """
         This is a wrapper for running all the scenarios, where scenario runs are
         processor-independent. As much of the Pyomo model is created here as
@@ -93,6 +92,7 @@ def run_scenarios(args, log):
         if post_reporter:
             post_reporter.start(is_main_reporter=(args.message_protocol == 'post'),
                                 **start_payload)  # kick off reporter with heartbeat
+
         else:
             print("Model started")
 
@@ -137,11 +137,13 @@ def run_scenarios(args, log):
             if err_class == 'InnerSyntaxError':
                 m = err.message
             else:
-                m = "Unknown error."
-            message = "Failed to prepare system. Error: {}".format(m)
+                # m = "Unknown error."
+                m = str(err)
+            message = "Error: Failed to prepare system.\n\n{}".format(m)
 
             if post_reporter:
-                post_reporter.report(action="error", message=message)
+                payload = scenario.update_payload(action='error', message=message)
+                post_reporter.report(**payload)
             else:
                 print(message)
 
@@ -152,10 +154,10 @@ def run_scenarios(args, log):
     # =======================
 
     if args.debug:
-        run_scenario(all_supersubscenarios[0], args=args)
+        run_scenario(all_supersubscenarios[0], args=args, **kwargs)
         return
     else:
-        p = partial(run_scenario, args=args, verbose=verbose)
+        p = partial(run_scenario, args=args, verbose=verbose, **kwargs)
 
         # set multiprocessing parameters
         poolsize = mp.cpu_count()
@@ -190,11 +192,16 @@ def commandline_parser():
     parser.add_argument('--user', dest='hydra_username', help='''The username for logging in to Hydra Server.''')
     parser.add_argument('--pw', dest='hydra_password',
                         help='''The password for logging in to Hydra Server.''')
-    parser.add_argument('--sid', dest='session_id', help='''The Hydra Server session ID.''')
-    parser.add_argument('--uid', dest='user_id', type=int, help='''The Hydra Server user_id.''')
-    parser.add_argument('--src', dest='source_id', type=int, help='''The source ID of the model to be run.''')
-    parser.add_argument('--nid', dest='network_id', type=int, help='''The network ID of the model to be run.''')
-    parser.add_argument('--tid', dest='template_id', type=int, help='''The template ID of the model to be run.''')
+    parser.add_argument('--sid', dest='session_id',
+                        help='''The Hydra Server session ID.''')
+    parser.add_argument('--uid', dest='user_id', type=int,
+                        help='''The Hydra Server user_id.''')
+    parser.add_argument('--src', dest='source_id', type=int,
+                        help='''The source ID of the model to be run.''')
+    parser.add_argument('--nid', dest='network_id', type=int,
+                        help='''The network ID of the model to be run.''')
+    parser.add_argument('--tid', dest='template_id', type=int,
+                        help='''The template ID of the model to be run.''')
     parser.add_argument('--scids', dest='scenario_ids',
                         help='''The IDs of the scenarios to be run,
                         specified as a string containing a comma-separated list of
@@ -208,10 +215,12 @@ def commandline_parser():
     parser.add_argument('--sol', dest='solver', default='glpk',
                         help='''The solver to use (e.g., glpk, gurobi, etc.).''')
     parser.add_argument('--fs', dest='foresight', default='zero', help='''Foresight: 'perfect' or 'imperfect' ''')
-    parser.add_argument('--purl', dest='post_url', help='''URL to ping indicating activity.''')
+    parser.add_argument('--purl', dest='post_url',
+                        help='''URL to ping indicating activity.''')
     parser.add_argument('--mp', dest='message_protocol', default=None,
                         help='''Message protocol to report progress back to client browser''')
-    parser.add_argument('--wurl', dest='websocket_url', help='''URL and port that is listening for activity.''')
+    parser.add_argument('--wurl', dest='websocket_url',
+                        help='''URL and port that is listening for activity.''')
     parser.add_argument('--guid', default=uuid.uuid4().hex, dest='unique_id',
                         help='''Unique identifier for this run.''')
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
@@ -228,8 +237,6 @@ def commandline_parser():
     parser.add_argument('--si', dest='suppress_input', action='store_true',
                         help='''Suppress input from results. This can speed up writing results.''')
     parser.add_argument('--st', dest='start_time', default=datetime.now().isoformat(), help='''Run start time.''')
-    parser.add_argument('--rkey', dest='report_api_key', default='',
-                        help='''Generic option for passing an API key for reporting to client.''')
 
     return parser
 
@@ -237,10 +244,10 @@ def commandline_parser():
 args = {}
 
 
-def main():
+def run_model(args_list, **kwargs):
     global args
     parser = commandline_parser()
-    args, unknown = parser.parse_known_args(sys.argv[1:])
+    args, unknown = parser.parse_known_args(args_list)
     here = os.path.abspath(os.path.dirname(__file__))
 
     # log file location - based on user
@@ -268,11 +275,11 @@ def main():
     args_str = '\n\t'.join([''] + ['{}: {}'.format(a[0], a[1]) for a in argtuples])
     log.info('started model run with args: %s' % args_str)
 
-    run_scenarios(args, log)
+    run_scenarios(args, log, **kwargs)
 
 
 if __name__ == '__main__':
     try:
-        main()
+        run_model(sys.argv[1:])
     except Exception as e:
         print(e, file=sys.stderr)

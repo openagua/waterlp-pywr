@@ -21,8 +21,10 @@ class Scenario(object):
         self.finished = 0
         self.current_date = None
 
-        self.start_time = '0'
-        self.end_time = '9'
+        # self.start_time = '0'
+        # self.end_time = '9'
+        self.start_time = None
+        self.end_time = None
         self.time_step = ''
 
         # look for existing option-scenario combination
@@ -38,7 +40,6 @@ class Scenario(object):
 
         self.scenario_ids = scenario_ids
         self.unique_id = args.unique_id + '-' + '-'.join(str(s_id) for s_id in scenario_ids)
-        self.time_step = ''
 
         for i, base_id in enumerate(scenario_ids):
             # if i and source.id in self.source_ids:
@@ -63,7 +64,8 @@ class Scenario(object):
                 self.source_scenarios[source.id] = source
 
             # source should not have a parent at this point, so this should be for the baseline scenario
-            self.time_step = max(self.time_step, source.get('time_step', ''))
+            if i == 0:
+                self.time_step = source.get('time_step')
 
             this_chain.reverse()
 
@@ -85,13 +87,12 @@ class Scenario(object):
         self.option = self.base_scenarios[0]
         self.scenario = self.base_scenarios[-1]
 
-        # add time step info
-        self.start_time = '0000'
-        self.end_time = '9999'
+        for i, source in enumerate(self.source_scenarios.values()):
+            self.start_time = source.get('start_time', self.start_time)
+            self.end_time = source.get('end_time', self.end_time)
 
-        for source in self.source_scenarios.values():
-            self.start_time = max(self.start_time, source.get('start_time', '0000'))
-            self.end_time = min(self.end_time, source.get('end_time', '9999'))
+            # self.start_time = max(self.start_time, source.get('start_time', '0000'))
+            # self.end_time = min(self.end_time, source.get('end_time', '9999'))
 
     def update_payload(self, action=None, **payload):
         payload.update({

@@ -7,7 +7,7 @@ from pyomo.environ import Var, Param
 from datetime import datetime as dt
 from math import isnan
 
-from evaluator import Evaluator
+from waterlp.evaluator import Evaluator
 
 
 def convert_type_name(n):
@@ -189,6 +189,28 @@ class WaterSystem(object):
         self.ra_node = {ra.id: node.id for node in network.nodes for ra in node.attributes}  # res_attr to node lookup
         self.ra_link = {ra.id: link.id for link in network.links for ra in link.attributes}  # res_attr to link lookup
 
+    def create_exception(self, key, message):
+
+        resource_type, resource_id, attr_id = key.split('/')
+        resource_id = int(resource_id)
+        attr_id = int(attr_id)
+        attr_name = self.conn.tattrs.get((resource_type, resource_id, attr_id), {}).get('attr_name', 'unknown attribute')
+        if resource_type == 'node':
+            resource_name = self.nodes.get(resource_id, {}).get('name', 'unknown resource')
+        elif resource_type == 'link':
+            resource_name = self.links.get(self.link_nodes.get(resource_id), {}).get('name', 'unknown resource')
+        else:
+            resource_name = self.network['name']
+
+        msg = 'Error calculating {attr} at {rtype} {res}:\n\n{exc}'.format(
+            attr=attr_name,
+            rtype=resource_type,
+            res=resource_name,
+            exc=message
+        )
+
+        return Exception(msg)
+
     def initialize_time_steps(self):
         # initialize time steps and foresight periods
 
@@ -251,7 +273,7 @@ class WaterSystem(object):
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
 
-        nsubblocks = 5
+        nsubblocks = 1
         self.default_subblocks = list(range(nsubblocks))
 
         # collect source data
@@ -355,8 +377,20 @@ class WaterSystem(object):
                             date_format=self.date_format,
                             parentkey=parentkey
                         )
-                except Exception as e:
-                    raise
+                except Exception as err:
+                    resource_name = ''
+                    if resource_type == 'node':
+                        resource_name = self.nodes.get(resource_id, {}).get('name')
+                    elif resource_type == 'link':
+                        n1, n2 = self.link_nodes.get(resource_id)
+                        resource_name = self.links.get((n1, n2), {}).get('name')
+                    else:
+                        resource_name = 'network'
+                    msg = '{}\n\n{}'.format(
+                        err,
+                        'This error occurred when calculating {} for {}.'.format(rs['value']['name'], resource_name)
+                    )
+                    raise Exception(msg)
 
                 if type(value) == str and not value:
                     continue
@@ -641,8 +675,8 @@ class WaterSystem(object):
                     )
                     if errormsg:
                         raise Exception(errormsg)
-                except:
-                    raise
+                except Exception as err:
+                    raise self.create_exception(parentkey, str(err))
 
                 # update missing blocks, if any
                 # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
@@ -683,14 +717,16 @@ class WaterSystem(object):
 
                     elif scope == 'model' and not intermediary:
 
-                        # only convert if updating the LP model
-                        # TODO: use generic unit converter here (and move to evaluator?)
-                        if dimension == 'Volumetric flow rate':
-                            # if unit == 'ft^3 s^-1':
-                            val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
-                        elif dimension == 'Volume':
-                            if unit == 'ac-ft':
-                                val *= self.TAF_TO_VOLUME
+                        if val is not None:
+
+                            # only convert if updating the LP model
+                            # TODO: use generic unit converter here (and move to evaluator?)
+                            if dimension == 'Volumetric flow rate':
+                                # if unit == 'ft^3 s^-1':
+                                val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
+                            elif dimension == 'Volume':
+                                if unit == 'ac-ft':
+                                    val *= self.TAF_TO_VOLUME
 
                         # create key
                         pyomo_key = list(idx) + [i] if type(idx) == tuple else [idx, i]
