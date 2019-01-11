@@ -4,6 +4,7 @@ from pyomo.environ import AbstractModel, Set, Objective, Var, Param, Constraint,
 
 # create the model
 def create_model(name, nodes, links, types, ts_idx, params, blocks, debug_gain=False, debug_loss=False):
+
     m = AbstractModel(name=name)
 
     # SETS
