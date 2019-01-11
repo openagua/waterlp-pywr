@@ -88,7 +88,7 @@ def add_subblocks(values, param_name, subblocks):
 
 class WaterSystem(object):
 
-    def __init__(self, conn, name, network, all_scenarios, template, args, settings=None, date_format='iso',
+    def __init__(self, conn, name, network, all_scenarios, template, args, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
         # Both of these are now converted to cubic meters (per time step)
@@ -116,6 +116,13 @@ class WaterSystem(object):
         self.ttypes = {}
         self.res_attrs = {}
         self.link_nodes = {}
+
+        self.timeseries = {}
+        self.variables = {}
+        self.block_params = ['Storage Demand', 'Demand', 'Priority']
+        self.blocks = {'node': {}, 'link': {}, 'network': {}}
+        self.store = {}
+        self.res_scens = {}
 
         self.params = {}  # to be defined later
         self.nparams = 0
@@ -194,7 +201,8 @@ class WaterSystem(object):
         resource_type, resource_id, attr_id = key.split('/')
         resource_id = int(resource_id)
         attr_id = int(attr_id)
-        attr_name = self.conn.tattrs.get((resource_type, resource_id, attr_id), {}).get('attr_name', 'unknown attribute')
+        attr_name = self.conn.tattrs.get((resource_type, resource_id, attr_id), {}).get('attr_name',
+                                                                                        'unknown attribute')
         if resource_type == 'node':
             resource_name = self.nodes.get(resource_id, {}).get('name', 'unknown resource')
         elif resource_type == 'link':
@@ -260,13 +268,6 @@ class WaterSystem(object):
         tsi = 0
         tsf = self.foresight_periods
 
-        self.timeseries = {}
-        self.variables = {}
-        self.block_params = ['Storage Demand', 'Demand', 'Priority']
-        self.blocks = {'node': {}, 'link': {}, 'network': {}}
-        self.store = {}
-        self.res_scens = {}
-
         self.evaluator.block_params = self.block_params
         self.evaluator.rs_values = {}  # to store raw resource attribute values
 
@@ -289,15 +290,12 @@ class WaterSystem(object):
                 if rs.resource_attr_id in self.ra_node:
                     resource_type = 'node'
                     resource_id = self.ra_node[rs.resource_attr_id]
-                    idx = resource_id
                 elif rs.resource_attr_id in self.ra_link:
                     resource_type = 'link'
                     resource_id = self.ra_link[rs.resource_attr_id]
-                    idx = self.link_nodes[resource_id]
                 else:
                     resource_type = 'network'
                     resource_id = self.network.id
-                    idx = -1
 
                 self.evaluator.rs_values[(resource_type, resource_id, rs.attr_id)] = rs.value
 
@@ -465,12 +463,6 @@ class WaterSystem(object):
         # set up subscenario
         self.setup_subscenario(supersubscenario)
 
-        # initialize boundary conditions
-        self.update_boundary_conditions(0, self.foresight_periods, scope='model', initialize=True)
-
-        # prepare pyomo parameters
-        self.init_pyomo_params()
-
     def prepare_params(self):
         """
         Declare parameters, based on the template type.
@@ -529,6 +521,7 @@ class WaterSystem(object):
                 (resource_type, resource_id, attr_id) = key
                 tattr = self.conn.tattrs[key]
                 param_name = get_param_name(resource_type, tattr['attr_name'])
+                idx = None
                 if resource_type == 'node':
                     idx = resource_id
                 elif resource_type == 'link':
@@ -561,81 +554,6 @@ class WaterSystem(object):
                             'values': perturb(self.evaluator.default_timeseries.copy(), variation),
                             'dimension': tattr['dimension']
                         }
-
-    def init_pyomo_params(self):
-        """Initialize Pyomo parameters with definitions."""
-
-        for param_name, param in self.params.items():
-
-            data_type = param['data_type']
-            resource_type = param['resource_type']
-            attr_name = param['attr_name']
-            unit = param['unit']
-            intermediary = param['intermediary']
-
-            if intermediary or resource_type == 'network':
-                continue
-
-            param_definition = None
-
-            initial_values = self.variables.get(param_name, None)
-
-            if param['is_var'] == 'N':
-
-                mutable = True  # assume all variables are mutable
-                default = 0  # TODO: define in template rather than here
-
-                if data_type == 'scalar':
-                    param_definition = 'm.{resource_type}s'
-
-                    if unit == 'ac-ft' or unit == 'in':
-                        initial_values \
-                            = {key: value * self.TAF_TO_VOLUME for (key, value) in initial_values.items()}
-
-                elif data_type == 'timeseries':
-                    if param_name == 'linkFlowCapacity':
-                        default = -1
-                        param_definition = 'm.ConstrainedLink, m.TS'
-                    elif attr_name in self.block_params:
-                        param_definition = 'm.{resource_type}Blocks, m.TS'
-                    else:
-                        param_definition = 'm.{resource_type}s, m.TS'
-
-                elif data_type == 'array':
-                    continue  # placeholder
-
-                else:
-                    # this includes descriptors, which have no place in the LP model yet
-                    continue
-
-                param_definition += ', default={default}, mutable={mutable}'.format(
-                    default=default,
-                    mutable=mutable
-                )
-                if initial_values is not None:
-                    param_definition += ', initialize=initial_values'
-                    # TODO: This is an opportunity for allocating memory in a Cythonized version?
-
-                param_definition = param_definition.format(resource_type=resource_type.title())
-
-            expression = 'm.{param_name} = Param({param_definition})'.format(
-                param_name=param_name,
-                param_definition=param_definition
-            )
-
-            self.params[param_name].update({
-                'initial_values': initial_values,
-                'expression': expression
-            })
-        return
-
-    def update_initial_conditions(self):
-        """Update initial conditions, such as reservoir and groundwater storage."""
-
-        # we should provide a list of pairs to map variable to initial conditions (reservoir storage, groundwater storage, etc.)
-        # Storage includes both reservoirs and groundwater
-        for j in self.instance.Storage:
-            getattr(self.instance, 'nodeInitialStorage')[j] = getattr(self.instance, 'nodeStorage')[j, 0].value
 
     def update_param(self, idx, param_name, dates_as_string, values=None, is_function=False, func=None,
                      has_blocks=False, scope='model', initialize=False):
@@ -736,17 +654,24 @@ class WaterSystem(object):
                             pyomo_key.insert(-1, c[1])
                         pyomo_key = tuple(pyomo_key)
 
-                        if initialize:
-                            if param_name not in self.variables:
-                                self.variables[param_name] = {}
-                            self.variables[param_name][pyomo_key] = val
+                        try:
+                            # # TODO: replace this with explicit updates
+                            # getattr(self.instance, param_name)[pyomo_key] = val
+                            if param_name == 'nodeRunoff':
+                                self.model.non_storage[idx].min_flow = val
+                                self.model.non_storage[idx].max_flow = val
+                            elif param_name == 'nodeDemand':
+                                self.model.non_storage[idx].max_flow = val
+                            elif param_name == 'nodePriority':
+                                if idx in self.model.non_storage:
+                                    self.model.non_storage[idx].cost = -val
+                                elif idx in self.model.storage:
+                                    self.model.storage[idx].cost = -val
+                            elif param_name == 'nodeStorageDemand':
+                                self.model.storage[idx].max_volume = val
 
-                        else:  # just update the parameter directly
-                            try:
-                                # TODO: replace this with explicit updates
-                                getattr(self.instance, param_name)[pyomo_key] = val
-                            except:
-                                pass  # likely the variable simply doesn't exist in the model
+                        except:
+                            pass  # likely the variable simply doesn't exist in the model
         except:
             raise
 
@@ -771,19 +696,6 @@ class WaterSystem(object):
                     scope=scope,
                     initialize=initialize
                 )
-
-    def update_internal_params(self):
-        '''Update internal parameters based on calculated variables'''
-
-        # define values based on user-defined priorities
-        lowval = 100
-        for idx in self.instance.nodePriority:
-            getattr(self.instance, 'nodeValueDB')[idx] = \
-                lowval - (getattr(self.instance, 'nodePriority')[idx].value or lowval)
-        if hasattr(self.instance, 'linkPriority'):
-            for idx in self.instance.linkPriority:
-                getattr(self.instance, 'linkValueDB')[idx] = \
-                    lowval - (getattr(self.instance, 'linkPriority')[idx].value or lowval)
 
     def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
 
