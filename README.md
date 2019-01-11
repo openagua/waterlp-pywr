@@ -89,17 +89,11 @@ See the main OpenAgua documentation for how to [view and edit data](https://docs
 
 Operational logic for spacific facilities is described in a [separate Google Doc](https://docs.google.com/document/d/19qTpzT-JEKpwmsF28UgYSVeF0gQW1batZOGd7pwBsF8/edit?usp=sharing)
 
-### Examples
+### Example input
 
-The implementation of several representative (and important) water system operations are described here. The purpose is to supplement the generalized water system operation [documentation](https://openagua.github.io/waterlp-general) with SFPUC-specific examples.
+The implementation of several representative (and important) water system operations are described in the water system model wiki.
 
-#### Reservoir storage demand for Hetch Hetchy
-
-#### Water demand for a SFPUC wholesale customer
-
-#### Environmental flow requirement at La Grange
-
-#### Hydropower operations for Kirkwood Powerhouse
+The purpose is to supplement the generalized water system operation [documentation](https://openagua.github.io/waterlp-general) with SFPUC-specific examples.
 
 # Running the model
 
