@@ -61,6 +61,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         network=system.network,
         template=system.template,
         solver=args.solver,
+        # evaluator=system.evaluator,
     )
 
     total_steps = len(system.dates)
@@ -102,6 +103,22 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             system.update_boundary_conditions(ts, ts + system.foresight_periods, 'model')
             # system.update_internal_params()  # update internal parameters that depend on user-defined variables
             system.model.run()
+            system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
+
+            # REPORT PROGRESS
+            system.scenario.finished += 1
+            system.scenario.current_date = current_dates_as_string[0]
+
+            new_now = datetime.now()
+            should_report_progress = \
+                ts == 0 or current_step == n or \
+                system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
+
+            if system.scenario.reporter and should_report_progress:
+                system.scenario.reporter.report(action='step')
+
+            now = new_now
+
         except Exception as err:
             # we can still save results to-date
             # system.save_results()
@@ -118,27 +135,14 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             raise Exception(msg)
 
         if ts == runs[-1]:
-            system.save_results()
+
+            # system.save_results()
             reporter and reporter.report(action='done')
 
             if verbose:
                 print('finished')
 
         i += 1
-
-        system.scenario.finished += 1
-        system.scenario.current_date = current_dates_as_string[0]
-
-        is_new_month = system.dates[ts].month != system.dates[ts - 1].month
-        is_end_time_step = ts == 0 or current_step == n
-        new_now = datetime.now()
-        elapsed_time = (new_now - now).seconds
-        should_report_progress = is_end_time_step or is_new_month and elapsed_time >= 1
-
-        if system.scenario.reporter and should_report_progress:
-            system.scenario.reporter.report(action='step')
-
-        now = new_now
 
         # yield
 

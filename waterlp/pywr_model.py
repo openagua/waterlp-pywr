@@ -8,11 +8,12 @@ from pywr.recorders import (NumpyArrayNodeRecorder)
 # create the model
 class NetworkModel(object):
     def __init__(self, network, template, solver='glpk'):
+
         self.storage = {}
         self.non_storage = {}
         self.links = {}
 
-        self.model = self.create_model(network, template, solver)
+        self.create_model(network, template, solver)
 
         # check network graph
         try:
@@ -136,7 +137,7 @@ class NetworkModel(object):
                 self.storage[up_node].connect(self.links[link_id], from_slot=link_trait['from_slot'])
                 self.links[link_id].connect(self.storage[down_node], to_slot=link_trait['to_slot'])
 
-        return model
+        self.model = model
 
     def update_timesteps(self, start, end, step):
         self.model.timestepper = Timestepper(
