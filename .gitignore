@@ -1,8 +1,9 @@
 instance/
 results/
 build/
-model/__pycache__/
-model/logs/
+waterlp/__pycache__/
+waterlp/logs/*
+logs/*
 *.wpr
 *.wpu
 .idea/
