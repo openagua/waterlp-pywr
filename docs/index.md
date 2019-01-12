@@ -1,21 +1,17 @@
-# Welcome to MkDocs
+# Overview
 
-This is a test site hosted on [GitLab Pages](https://pages.gitlab.io). You can
-[browse its source code](https://gitlab.com/pages/mkdocs), fork it and start
-using it on your projects.
+**This documentation is currently under construction.**
 
-For full documentation visit [mkdocs.org](http://mkdocs.org).
+This is the default generalized model available for use with [OpenAgua](https://www.openagua.org).
 
-## Commands
+Here is a high level flow chart of the modeling steps:
 
-* `mkdocs new [dir-name]` - Create a new project.
-* `mkdocs serve` - Start the live-reloading docs server.
-* `mkdocs build` - Build the documentation site.
-* `mkdocs help` - Print this help message.
+![Flowchart](img/flowchart.png)
 
-## Project layout
+*Figure: General flowchart of the modeling process (see [figure source](https://docs.google.com/drawings/d/141pHKswVlhK1rKUatBV8gItk2QbzD3wzM-FzwUMG1B8/edit?usp=sharing))*
 
-    mkdocs.yml    # The configuration file.
-    docs/
-        index.md  # The documentation homepage.
-        ...       # Other markdown pages, images and other files.
+# Installation
+
+This model is already available for use with [OpenAgua](https://www.openagua.org), such that installation is not needed for basic usage.
+
+This model may also be installed independently from OpenAgua. For installation instructions, see the [main GitHub repository](https://github.com/openagua/waterlp-general).
