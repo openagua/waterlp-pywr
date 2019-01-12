@@ -655,8 +655,6 @@ class WaterSystem(object):
                         pyomo_key = tuple(pyomo_key)
 
                         try:
-                            # # TODO: replace this with explicit updates
-                            # getattr(self.instance, param_name)[pyomo_key] = val
                             if param_name == 'nodeRunoff':
                                 self.model.non_storage[idx].min_flow = val
                                 self.model.non_storage[idx].max_flow = val
@@ -664,9 +662,9 @@ class WaterSystem(object):
                                 self.model.non_storage[idx].max_flow = val
                             elif param_name == 'nodePriority':
                                 if idx in self.model.non_storage:
-                                    self.model.non_storage[idx].cost = -val
+                                    self.model.non_storage[idx].cost = val
                                 elif idx in self.model.storage:
-                                    self.model.storage[idx].cost = -val
+                                    self.model.storage[idx].cost = val
                             elif param_name == 'nodeStorageDemand':
                                 self.model.storage[idx].max_volume = val
 
