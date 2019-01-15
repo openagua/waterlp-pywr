@@ -95,7 +95,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         )
 
         try:
-            system.model.update_initial_conditions(
+            system.update_initial_conditions(
                 variables=system.variables,
                 initialize=i == 0
             )
@@ -120,14 +120,16 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             now = new_now
 
         except Exception as err:
-            # we can still save results to-date
-            # system.save_results()
+            log_dir = system.save_logs()
+            system.save_results(error=True)
             msg = 'ERROR: Something went wrong at step {timestep} of {total} ({date}):\n\n{err}'.format(
                 timestep=current_step,
                 total=total_steps,
                 date=current_dates[0].date(),
                 err=err
             )
+            if log_dir:
+                msg += '\n\nSee log files in {}'.format(log_dir)
             print(msg)
             if system.scenario.reporter:
                 system.scenario.reporter.report(action='error', message=msg)
@@ -135,12 +137,10 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             raise Exception(msg)
 
         if ts == runs[-1]:
-
-            # system.save_results()
+            system.save_results()
             reporter and reporter.report(action='done')
 
-            if verbose:
-                print('finished')
+            print('finished')
 
         i += 1
 

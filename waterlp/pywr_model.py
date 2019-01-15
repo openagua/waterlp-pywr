@@ -1,8 +1,8 @@
 import datetime
 import pandas
-from pywr.core import Model, Input, Output, Link, Storage, Timestepper
+from pywr.core import Model, Input, Output, Link, Storage, RiverGauge, Timestepper
 from pywr.parameters import (ArrayIndexedParameter, DataFrameParameter, ConstantParameter)
-from pywr.recorders import (NumpyArrayNodeRecorder)
+from pywr.recorders import (NumpyArrayNodeRecorder, NumpyArrayStorageRecorder)
 
 
 # create the model
@@ -22,8 +22,9 @@ class NetworkModel(object):
             raise Exception('Pywr error: {}'.format(err))
 
     def create_model(self, network, template, solver):
-        input_types = ['Inflow Node', 'Catchment', 'Misc Source']
+        input_types = ['Inflow Node', 'Catchment']
         output_types = ['Outflow Node', 'Urban Demand', 'General Demand']
+        ifr_types = ['Flow Requirement']
         storage_types = ['Reservoir', 'Groundwater']
 
         model = Model(solver=solver)
@@ -94,16 +95,18 @@ class NetworkModel(object):
 
         # TODO: change looping variable notation
         for node_id, node in node_lookup_id.items():
-            types = node['type']
+            node_type = node['type']
             name = node['name']
-            if types in storage_types:
+            if node_type in storage_types:
                 num_outputs = node.get('connect_in', 0)
                 num_inputs = node.get('connect_out', 0)
                 self.storage[node_id] = Storage(model, name=name, num_outputs=num_outputs, num_inputs=num_inputs)
-            elif types in output_types:
+            elif node_type in output_types:
                 self.non_storage[node_id] = Output(model, name=name)
-            elif types in input_types:
+            elif node_type in input_types:
                 self.non_storage[node_id] = Input(model, name=name)
+            elif node_type in ifr_types:
+                self.non_storage[node_id] = RiverGauge(model, name=name)
             else:
                 self.non_storage[node_id] = Link(model, name=name)
 
@@ -145,21 +148,6 @@ class NetworkModel(object):
             pandas.to_datetime(end),  # end
             datetime.timedelta(step)  # step
         )
-
-    def update_initial_conditions(self, variables=None, initialize=False):
-        """Update initial conditions, such as reservoir and groundwater storage."""
-
-        node_ids = list(self.storage.keys())
-
-        if initialize:
-            for node_id in node_ids:
-                self.storage[node_id].initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
-
-        else:
-            for node_id in node_ids:
-                self.storage[node_id].initial_volume = self.storage[node_id].volume[-1]
-
-        return
 
     def run(self):
         self.model.run()
