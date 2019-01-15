@@ -7,6 +7,7 @@ import boto3
 from datetime import datetime as dt
 
 from waterlp.evaluator import Evaluator
+from waterlp.converter import convert
 
 
 def convert_type_name(n):
@@ -94,7 +95,7 @@ class WaterSystem(object):
         self.storage = network.layout.get('storage')
 
         # Both of these are now converted to cubic meters (per time step)
-        self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6 # convert to million ft^3/day
+        self.SECOND_TO_DAY = 60 * 60 * 24  # convert to million ft^3/day
         self.TAF_TO_VOLUME = 1e3 * 43560 / 1e6  # convert to million ft^3
 
         self.conn = conn
@@ -105,6 +106,8 @@ class WaterSystem(object):
         self.reporter = reporter
         self.args = args
         self.date_format = date_format
+        self.storage_scale = 1
+        self.storage_unit = 'hm^3'
 
         self.scenarios = {s.name: s for s in all_scenarios}
         self.scenarios_by_id = {s.id: s for s in all_scenarios}
@@ -493,6 +496,10 @@ class WaterSystem(object):
                     )
                     self.params[param_name] = param
 
+                    if param_name == 'nodeInitialStorage':
+                        self.storage_scale = param.properties.get('scale', 1)
+                        self.storage_unit = param.unit
+
     def setup_subscenario(self, supersubscenario):
         """
         Add variation to all resource attributes as needed.
@@ -641,16 +648,12 @@ class WaterSystem(object):
                     elif scope == 'model' and not intermediary:
 
                         if val is not None:
-
+                            scale = param.properties.get('scale', 1)
                             # only convert if updating the LP model
-                            # TODO: use generic unit converter here (and move to evaluator?)
                             if dimension == 'Volumetric flow rate':
-                                if unit == 'ft^3 s^-1':
-                                    # val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
-                                    val *= self.VOLUMETRIC_FLOW_RATE_CONST
+                                val = convert(val * scale, dimension, unit, 'hm^3 day^-1')
                             elif dimension == 'Volume':
-                                if unit == 'ac-ft':
-                                    val *= self.TAF_TO_VOLUME
+                                val = convert(val * scale, dimension, unit, 'hm^3')
 
                         # create key
                         pyomo_key = list(idx) + [i] if type(idx) == tuple else [idx, i]
@@ -693,14 +696,15 @@ class WaterSystem(object):
 
         if initialize:
             for node_id in node_ids:
-                self.model.storage[node_id].initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0) * self.TAF_TO_VOLUME
+                initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
+                self.model.storage[node_id].initial_volume = \
+                    convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
 
         else:
             for node_id, node in self.model.storage.items():
                 node.initial_volume = node.volume[0]
 
         return
-
 
     def update_boundary_conditions(self, tsi, tsf, scope, initialize=False):
         """
@@ -758,6 +762,7 @@ class WaterSystem(object):
         has_blocks = param.get('attr_name') in self.block_params
         dimension = param.get('dimension')
         unit = param.get('unit')
+        scale = param.properties.get('scale', 1)
         attr_id = param.get('attr_id')
 
         # collect to results
@@ -766,11 +771,9 @@ class WaterSystem(object):
         # on the other hand, it should be checked which is faster: Pandas group_by or simple addition here
 
         if dimension == 'Volume':
-            if unit == 'ac-ft':
-                value /= self.TAF_TO_VOLUME
+            value = convert(value, dimension, 'hm^3', unit) / scale
         elif dimension == 'Volumetric flow rate':
-            if unit == 'ft^3 s^-1':
-                value *= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
+            value = convert(value, dimension, 'hm^3 day^-1', unit) / scale
 
         # store in evaluator store
         self.store_value(resource_type, res_id, attr_id, timestamp, value, has_blocks=has_blocks)
