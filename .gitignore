@@ -7,3 +7,5 @@ logs/*
 *.wpr
 *.wpu
 .idea/
+*.lp
+*.mps
