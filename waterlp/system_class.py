@@ -3,9 +3,8 @@ from math import sqrt
 import json
 from collections import OrderedDict
 import pandas as pd
-from pyomo.environ import Var, Param
+import boto3
 from datetime import datetime as dt
-from math import isnan
 
 from waterlp.evaluator import Evaluator
 
@@ -91,9 +90,12 @@ class WaterSystem(object):
     def __init__(self, conn, name, network, all_scenarios, template, args, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
+        self.s3 = boto3.client('s3')
+        self.storage = network.layout.get('storage')
+
         # Both of these are now converted to cubic meters (per time step)
-        self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6
-        self.TAF_TO_VOLUME = 1e3 * 43560 / 1e6  # NOTE: model units are TAF, not AF
+        self.VOLUMETRIC_FLOW_RATE_CONST = 60 * 60 * 24 / 1e6 # convert to million ft^3/day
+        self.TAF_TO_VOLUME = 1e3 * 43560 / 1e6  # convert to million ft^3
 
         self.conn = conn
         self.session = session
@@ -574,10 +576,13 @@ class WaterSystem(object):
 
             if resource_type == 'network':
                 resource_id = self.network.id
+                resource = self.network
             elif resource_type == 'node':
                 resource_id = idx
+                resource = self.nodes.get(resource_id)
             else:
                 resource_id = idx
+                resource = self.links.get(self.link_nodes.get(resource_id))
             parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
 
             if is_function:
@@ -640,8 +645,9 @@ class WaterSystem(object):
                             # only convert if updating the LP model
                             # TODO: use generic unit converter here (and move to evaluator?)
                             if dimension == 'Volumetric flow rate':
-                                # if unit == 'ft^3 s^-1':
-                                val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
+                                if unit == 'ft^3 s^-1':
+                                    # val *= (self.tsdeltas[datetime].days * self.VOLUMETRIC_FLOW_RATE_CONST)
+                                    val *= self.VOLUMETRIC_FLOW_RATE_CONST
                             elif dimension == 'Volume':
                                 if unit == 'ac-ft':
                                     val *= self.TAF_TO_VOLUME
@@ -659,12 +665,19 @@ class WaterSystem(object):
                                 self.model.non_storage[idx].min_flow = val
                                 self.model.non_storage[idx].max_flow = val
                             elif param_name == 'nodeDemand':
-                                self.model.non_storage[idx].max_flow = val
+                                if hasattr(self.model.non_storage[idx], 'mrf'):
+                                    self.model.non_storage[idx].mrf = val
+                                else:
+                                    self.model.non_storage[idx].max_flow = val
                             elif param_name == 'nodePriority':
                                 if idx in self.model.non_storage:
-                                    self.model.non_storage[idx].cost = val
+                                    if hasattr(self.model.non_storage[idx], 'mrf_cost'):
+                                        self.model.non_storage[idx].cost = 0.0
+                                        self.model.non_storage[idx].mrf_cost = -val
+                                    else:
+                                        self.model.non_storage[idx].cost = -val
                                 elif idx in self.model.storage:
-                                    self.model.storage[idx].cost = val
+                                    self.model.storage[idx].cost = -val
                             elif param_name == 'nodeStorageDemand':
                                 self.model.storage[idx].max_volume = val
 
@@ -672,6 +685,22 @@ class WaterSystem(object):
                             pass  # likely the variable simply doesn't exist in the model
         except:
             raise
+
+    def update_initial_conditions(self, variables=None, initialize=False):
+        """Update initial conditions, such as reservoir and groundwater storage."""
+
+        node_ids = list(self.model.storage.keys())
+
+        if initialize:
+            for node_id in node_ids:
+                self.model.storage[node_id].initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0) * self.TAF_TO_VOLUME
+
+        else:
+            for node_id, node in self.model.storage.items():
+                node.initial_volume = node.volume[0]
+
+        return
+
 
     def update_boundary_conditions(self, tsi, tsf, scope, initialize=False):
         """
@@ -698,29 +727,32 @@ class WaterSystem(object):
     def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
 
         # loop through all the model parameters and variables
-        if not suppress_input:
-            for param in self.instance.component_objects(Param):
-                self.store_results(param, timesteps, tsidx, is_var=False, include_all=include_all)
+        for res_id, node in self.model.non_storage.items():
+            self.store_results(
+                res_id=res_id,
+                param_name='nodeOutflow',
+                timestamp=timesteps[0],
+                value=node.flow[0],
+            )
 
-        for var in self.instance.component_objects(Var):
-            self.store_results(var, timesteps, tsidx, is_var=True, include_all=include_all)
+            self.store_results(
+                res_id=res_id,
+                param_name='nodeInflow',
+                timestamp=timesteps[0],
+                value=node.flow[0],
+            )
 
-    def parse_pyomo_index(self, is_var, idx, resource_type):
-        if is_var:
-            res_idx = idx[:2] if resource_type == 'link' else idx[0]
-            time_idx = idx[-1]
-        else:
-            res_idx = (type(idx) == int and idx) or (idx[:2] if resource_type == 'link' else idx[0])
-            time_idx = type(idx) != int and idx[-1]
-        return res_idx, time_idx
+        for res_id, node in self.model.storage.items():
+            self.store_results(
+                res_id=res_id,
+                param_name='nodeStorage',
+                timestamp=timesteps[0],
+                value=node.volume[0],
+            )
 
-    def store_results(self, pyomo_param, timesteps, tsidx, is_var, include_all=None):
+    def store_results(self, res_id=None, param_name=None, timestamp=None, value=None):
 
-        param = self.params.get(pyomo_param.name, {})
-
-        # debug gain and debug loss should cause an exception not a return
-        if not param and pyomo_param.name not in ['debugGain', 'debugLoss']:
-            return
+        param = self.params.get(param_name, {})
 
         resource_type = param.get('resource_type')
         has_blocks = param.get('attr_name') in self.block_params
@@ -729,46 +761,19 @@ class WaterSystem(object):
         attr_id = param.get('attr_id')
 
         # collect to results
-        for idx, p in pyomo_param.items():
-            if p is None:
-                continue
 
-            # debug gain / loss
-            if pyomo_param.name in ['debugLoss', 'debugGain']:
-                if p.value:
-                    res_idx = idx[0]
-                    res_name = self.nodes[res_idx]['name']
-                    raise Exception("DEBUG: {} for {} with value {}".format(pyomo_param.name, res_name, p.value))
-                else:
-                    continue
+        # the purpose of this addition is to aggregate blocks, if any, thus eliminating the need for Pandas
+        # on the other hand, it should be checked which is faster: Pandas group_by or simple addition here
 
-            res_idx, time_idx = self.parse_pyomo_index(is_var, idx, resource_type)
+        if dimension == 'Volume':
+            if unit == 'ac-ft':
+                value /= self.TAF_TO_VOLUME
+        elif dimension == 'Volumetric flow rate':
+            if unit == 'ft^3 s^-1':
+                value *= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
 
-            if not (time_idx is not False and time_idx == 0 or include_all):  # index[-1] is time
-                continue
-
-            timestamp = timesteps[time_idx]
-
-            # the purpose of this addition is to aggregate blocks, if any, thus eliminating the need for Pandas
-            # on the other hand, it should be checked which is faster: Pandas group_by or simple addition here
-
-            val = 0 if not p.value else round(p.value, 6)
-
-            if dimension == 'Volume':
-                if unit == 'ac-ft':
-                    val /= self.TAF_TO_VOLUME
-            elif dimension == 'Volumetric flow rate':
-                # elif unit == 'ft^3 s^-1':
-                val /= (self.tsdeltas[timestamp].days * self.VOLUMETRIC_FLOW_RATE_CONST)
-
-            # store in evaluator store
-            if resource_type == 'node':
-                res_id = res_idx
-            else:
-                res_id = self.links[res_idx]['id']
-            self.store_value(resource_type, res_id, attr_id, timestamp, val, has_blocks=has_blocks)
-
-        return
+        # store in evaluator store
+        self.store_value(resource_type, res_id, attr_id, timestamp, value, has_blocks=has_blocks)
 
     def store_value(self, ref_key, ref_id, attr_id, timestamp, val, has_blocks=False):
 
@@ -806,7 +811,23 @@ class WaterSystem(object):
         else:
             self.store[key_string][timestamp] = val
 
-    def save_results(self):
+    def save_logs(self):
+
+        log_dir = 'log/{run_name}'.format(run_name=self.args.run_name)
+
+        for filename in ['pywr_glpk_debug.lp', 'pywr_glpk_debug.mps']:
+            with open(filename, 'r') as file:
+                content = file.read()
+                key = '{network_folder}/{log_dir}/{filename}'.format(
+                    network_folder=self.storage.folder,
+                    log_dir=log_dir,
+                    filename=filename
+                )
+                self.s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
+
+        return log_dir
+
+    def save_results(self, error=False):
 
         if self.scenario.reporter:
             self.scenario.reporter.report(action='save', saved=0)
