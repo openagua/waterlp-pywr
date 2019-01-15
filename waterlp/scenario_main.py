@@ -1,9 +1,6 @@
-import traceback
-from io import StringIO
+from datetime import datetime
 
-from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
-
-from waterlp.pyomo_model import create_model
+from waterlp.pywr_model import NetworkModel
 from waterlp.post_reporter import Reporter as PostReporter
 from waterlp.ably_reporter import AblyReporter
 from waterlp.screen_reporter import ScreenReporter
@@ -43,15 +40,6 @@ def run_scenario(supersubscenario, args=None, verbose=False, **kwargs):
 
     except Exception as err:
 
-        # print(e, file=sys.stderr)
-        # # Exception logging inspired by: https://seasonofcode.com/posts/python-multiprocessing-and-exceptions.html
-        # exc_buffer = StringIO()
-        # traceback.print_exc(file=exc_buffer)
-        # msg = 'At step ' + str(current_step) + ' of ' + str(total_steps) + ': ' + \
-        #       str(e) + '\nUncaught exception in worker process:\n' + exc_buffer.getvalue()
-        # if current_step:
-        #     msg += '\n\nPartial results have been saved'
-
         print(err)
 
         if reporter:
@@ -69,22 +57,12 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     # intialize
     system.initialize(supersubscenario)
 
-    system.model = create_model(
+    system.model = NetworkModel(
         network=system.network,
         template=system.template,
-        start=system.scenario.start_time,
-        end=system.scenario.end_time,
-        ts=system.scenario.time_step,
-        params=system.params,
-        debug_gain=args.debug_gain,
-        debug_loss=args.debug_loss
+        solver=args.solver,
+        # evaluator=system.evaluator,
     )
-
-    system.instance = system.model.create_instance()
-
-    system.update_internal_params()
-
-    optimizer = SolverFactory(args.solver)
 
     total_steps = len(system.dates)
 
@@ -92,6 +70,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     n = len(runs)
 
     i = 0
+    now = datetime.now()
+
     while i < n:
 
         ts = runs[i]
@@ -100,11 +80,6 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         if verbose:
             print('current step: %s' % current_step)
 
-        # if user requested to stop
-        # if reporter._is_canceled:
-        # print('canceled')
-        # break
-
         #######################
         # CORE SCENARIO ROUTINE
         #######################
@@ -112,81 +87,60 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         current_dates = system.dates[ts:ts + system.foresight_periods]
         current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
 
-        # solve the model
-        try:
-            results = optimizer.solve(system.instance)
-        except:
-            system.save_results()
-            msg = 'ERROR: Unknown error at step {} of {} ({}). Partial results have been saved.'.format(
-                current_step, total_steps, current_dates[0]
-            )
-            if system.scenario.reporter:
-                system.scenario.reporter.report(action='error', message=msg)
-            raise Exception(msg)
+        # 1. Update timesteps
+        system.model.update_timesteps(
+            start=current_dates_as_string[0],
+            end=current_dates_as_string[-1],
+            step=10
+        )
 
-        if (results.solver.status == SolverStatus.ok) \
-                and (results.solver.termination_condition == TerminationCondition.optimal):
+        try:
+            system.update_initial_conditions(
+                variables=system.variables,
+                initialize=i == 0
+            )
+            # system.update_boundary_conditions(ts, ts + system.foresight_periods, 'intermediary')
+            system.update_boundary_conditions(ts, ts + system.foresight_periods, 'model')
+            # system.update_internal_params()  # update internal parameters that depend on user-defined variables
+            system.model.run()
             system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
 
-        elif results.solver.termination_condition == TerminationCondition.infeasible:
-            system.save_results()
-            msg = 'ERROR: Problem is infeasible at step {} of {} ({}). Partial results have been saved.'.format(
-                current_step, total_steps, current_dates[0]
-            )
-            if system.scenario.reporter:
-                system.scenario.reporter.report(action='error', message=msg)
-            raise Exception(msg)
+            # REPORT PROGRESS
+            system.scenario.finished += 1
+            system.scenario.current_date = current_dates_as_string[0]
 
-        else:
-            system.save_results()
-            msg = 'ERROR: Something went wrong at step {} of {} ({}). This might indicate an infeasibility, but not necessarily.'.format(
-                current_step, total_steps, current_dates[0]
+            new_now = datetime.now()
+            should_report_progress = \
+                ts == 0 or current_step == n or \
+                system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
+
+            if system.scenario.reporter and should_report_progress:
+                system.scenario.reporter.report(action='step')
+
+            now = new_now
+
+        except Exception as err:
+            log_dir = system.save_logs()
+            system.save_results(error=True)
+            msg = 'ERROR: Something went wrong at step {timestep} of {total} ({date}):\n\n{err}'.format(
+                timestep=current_step,
+                total=total_steps,
+                date=current_dates[0].date(),
+                err=err
             )
+            if log_dir:
+                msg += '\n\nSee log files in {}'.format(log_dir)
             print(msg)
             if system.scenario.reporter:
                 system.scenario.reporter.report(action='error', message=msg)
+
             raise Exception(msg)
 
-        # load the results
-        system.instance.solutions.load_from(results)
-
-        system.scenario.finished += 1
-        system.scenario.current_date = current_dates_as_string[0]
-
-        if system.scenario.reporter:
-            if ts == 0 or system.dates[ts].month != system.dates[ts-1].month or current_step == n:
-                system.scenario.reporter.report(action='step')
-
-        # update the model instance
-        if ts != runs[-1]:
-            ts_next = runs[i + 1]
-            try:
-                system.update_initial_conditions()
-                system.update_boundary_conditions(ts, ts + system.foresight_periods, 'intermediary')
-                system.update_boundary_conditions(ts_next, ts_next + system.foresight_periods, 'model')
-                system.update_internal_params()  # update internal parameters that depend on user-defined variables
-            except Exception as err:
-                # we can still save results to-date
-                # system.save_results()
-                msg = 'ERROR: Something went wrong at step {timestep} of {total} ({date}):\n\n{err}'.format(
-                    timestep=current_step,
-                    total=total_steps,
-                    date=current_dates[0].date(),
-                    err=err
-                )
-                print(msg)
-                if system.scenario.reporter:
-                    system.scenario.reporter.report(action='error', message=msg)
-
-                raise Exception(msg)
-            system.instance.preprocess()
-
-        else:
+        if ts == runs[-1]:
             system.save_results()
             reporter and reporter.report(action='done')
 
-            if verbose:
-                print('finished')
+            print('finished')
 
         i += 1
 
