@@ -100,8 +100,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
                 initialize=i == 0
             )
             # system.update_boundary_conditions(ts, ts + system.foresight_periods, 'intermediary')
-            system.update_boundary_conditions(ts, ts + system.foresight_periods, 'model')
-            # system.update_internal_params()  # update internal parameters that depend on user-defined variables
+            # system.update_boundary_conditions(ts, ts + system.foresight_periods, 'model')
+            system.update_boundary_conditions(ts, ts + system.foresight_periods)
             system.model.run()
             system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
 
@@ -110,14 +110,13 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             system.scenario.current_date = current_dates_as_string[0]
 
             new_now = datetime.now()
-            should_report_progress = \
-                ts == 0 or current_step == n or \
-                system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
+            should_report_progress = ts == 0 or current_step == n or (new_now - now).seconds >= 2
+                # system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
 
             if system.scenario.reporter and should_report_progress:
                 system.scenario.reporter.report(action='step')
 
-            now = new_now
+                now = new_now
 
         except Exception as err:
             log_dir = system.save_logs()
@@ -129,7 +128,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
                 err=err
             )
             if log_dir:
-                msg += '\n\nSee log files in {}'.format(log_dir)
+                msg += '\n\nSee log files in "{}"'.format(log_dir)
             print(msg)
             if system.scenario.reporter:
                 system.scenario.reporter.report(action='error', message=msg)

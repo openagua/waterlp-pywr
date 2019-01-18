@@ -182,13 +182,13 @@ def eval_timeseries(timeseries, dates, fill_value=None, flatten=False, has_block
 def eval_array(array, flavor=None):
     result = None
     try:
-        temp = json.loads(array)
+        array_as_list = json.loads(array)
         if flavor is None:
             result = array
         elif flavor == 'list':
-            result = temp
+            result = array_as_list
         elif flavor == 'pandas':
-            result = pandas.DataFrame(temp)
+            result = pandas.DataFrame(array_as_list)
         returncode = 0
         errormsg = 'No errors!'
     except:
@@ -338,6 +338,7 @@ class Evaluator:
         self.default_array = make_default_value('array')
         self.resource_scenarios = {}
         self.external = {}
+        self.block_params = []
 
         self.network_files_path = settings.get('network_files_path')
 
@@ -421,7 +422,7 @@ class Evaluator:
                 )
 
             elif data_type == 'array':
-                returncode, errormsg, result = eval_array(value.value)
+                returncode, errormsg, result = eval_array(value.value, flavor=flavor)
 
             elif data_type == 'descriptor':
                 returncode, errormsg, result = eval_descriptor(value.value)
@@ -527,6 +528,8 @@ class Evaluator:
                 if val and data_type in ['timeseries', 'periodic timeseries'] and isnan(val):
                     errormsg = "Attribute value is not a number."
                     raise Exception(errormsg)
+                elif val is None:
+                    return None, None, None
                 else:
                     self.hashstore[hashkey][timestep] = val
                 if self.data_type != 'timeseries':
@@ -629,7 +632,13 @@ class Evaluator:
 
                 result = self.store[key].get(offset_date_as_string)
 
-            flavor = kwargs.get('flavor')
+            default_flavor = None
+            if rs_value['type'] == 'timeseries':
+                default_flavor = None
+            elif rs_value['type'] == 'array':
+                default_flavor = 'list'
+            flavor = kwargs.get('flavor', default_flavor)
+
             tattr = self.conn.tattrs[(ref_key, ref_id, attr_id)]
             has_blocks = tattr['properties'].get('has_blocks') or tattr['attr_name'] in self.block_params
             # need to evaluate the data anew only as needed

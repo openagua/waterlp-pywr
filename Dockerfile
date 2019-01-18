@@ -10,8 +10,8 @@ COPY requirements.txt requirements.txt
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # install pywr
-RUN wget -qO- https://github.com/pywr/pywr/archive/v0.5.1.tar.gz | tar xvz
-RUN python ./pywr-0.5.1/setup.py install --with-glpk | rm -r ./pywr-0.5.1
+#RUN wget -qO- https://github.com/pywr/pywr/archive/v0.5.1.tar.gz | tar xvz
+#RUN python ./pywr-0.5.1/setup.py install --with-glpk | rm -r ./pywr-0.5.1
 
 WORKDIR /user/local
 ADD /model /model

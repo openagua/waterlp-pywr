@@ -7,7 +7,7 @@ from pywr.recorders import (NumpyArrayNodeRecorder, NumpyArrayStorageRecorder)
 
 # create the model
 class NetworkModel(object):
-    def __init__(self, network, template, solver='glpk'):
+    def __init__(self, network, template, solver='glpk', check_graph=False):
 
         self.storage = {}
         self.non_storage = {}
@@ -16,14 +16,15 @@ class NetworkModel(object):
         self.create_model(network, template, solver)
 
         # check network graph
-        try:
-            self.model.check_graph()
-        except Exception as err:
-            raise Exception('Pywr error: {}'.format(err))
+        if check_graph:
+            try:
+                self.model.check_graph()
+            except Exception as err:
+                raise Exception('Pywr error: {}'.format(err))
 
     def create_model(self, network, template, solver):
-        input_types = ['Inflow Node', 'Catchment']
-        output_types = ['Outflow Node', 'Urban Demand', 'General Demand']
+        input_types = ['Inflow Node', 'Catchment', 'Misc Source']
+        output_types = ['Outflow Node', 'Urban Demand', 'General Demand', 'Agricultural Demand']
         ifr_types = ['Flow Requirement']
         storage_types = ['Reservoir', 'Groundwater']
 

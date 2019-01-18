@@ -75,13 +75,15 @@ def add_subblocks(values, param_name, subblocks):
         except:
             raise
 
-    elif param_name == 'nodePriority':
+    elif param_name in ['nodeValue', 'nodePriority', 'nodeViolationCost']:
         for block in values:
             for i, subblock in enumerate(subblocks):
                 new_vals = {}
                 for d, v in values[block].items():
                     new_vals[d] = v + (1 - sqrt((nsubblocks - i) / nsubblocks))
                 new_values[(block, subblock)] = new_vals
+    else:
+        new_values = values
 
     return new_values
 
@@ -124,7 +126,8 @@ class WaterSystem(object):
 
         self.timeseries = {}
         self.variables = {}
-        self.block_params = ['Storage Demand', 'Demand', 'Priority']
+        # self.block_params = ['Storage Demand', 'Demand', 'Priority']
+        self.block_params = []
         self.blocks = {'node': {}, 'link': {}, 'network': {}}
         self.store = {}
         self.res_scens = {}
@@ -312,22 +315,6 @@ class WaterSystem(object):
             source = self.scenario.source_scenarios[source_id]
 
             for rs in source.resourcescenarios:
-                res_attr = self.res_attrs.get(rs.resource_attr_id)
-                if not res_attr:
-                    continue  # this is for a different resource type
-
-                intermediary = res_attr['properties'].get('intermediary')
-                is_var = res_attr['is_var'] == 'Y'
-
-                # non-intermediary outputs should not be pre-processed at all
-                if is_var and not intermediary:
-                    continue
-
-                # create a dictionary to lookup resourcescenario by resource attribute ID
-                self.res_scens[rs.resource_attr_id] = rs
-
-                # load the metadata
-                metadata = json.loads(rs.value.metadata)
 
                 # get identifiers
                 if rs.resource_attr_id in self.ra_node:
@@ -343,45 +330,127 @@ class WaterSystem(object):
                     resource_id = self.network.id
                     idx = -1
 
-                # identify as function or not
-                is_function = metadata.get('use_function', 'N') == 'Y'
-
-                # get attr name
-                attr_name = res_attr['attr_name']
-                attr_id = res_attr['attr_id']
-
-                # get data type
-                data_type = rs.value.type
-
-                # update data type
-                self.res_attrs[rs.resource_attr_id]['data_type'] = data_type
-
-                # default blocks
-                # NB: self.block_params should be defined
-                # TODO: update has_blocks from template, not metadata
-                has_blocks = (attr_name in self.block_params) or metadata.get('has_blocks', 'N') == 'Y'
-                blocks = [(0, 0)]
-
-                param_name = get_param_name(resource_type, attr_name)
-
-                parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
-
-                # TODO: get fill_value from dataset/ttype (this should be user-specified)
-                self.evaluator.data_type = data_type
-                value = None
                 try:
-                    # Intermediary output functions are not evaluated at this stage, as they may depend on calculated values
-                    if not (intermediary and is_var and is_function):
-                        value = self.evaluator.eval_data(
-                            value=rs.value,
-                            do_eval=False,
-                            fill_value=0,
-                            has_blocks=has_blocks,
-                            date_format=self.date_format,
-                            parentkey=parentkey
-                        )
+
+                    res_attr = self.res_attrs.get(rs.resource_attr_id)
+                    if not res_attr:
+                        continue  # this is for a different resource type
+
+                    intermediary = res_attr['properties'].get('intermediary')
+                    is_var = res_attr['is_var'] == 'Y'
+
+                    # non-intermediary outputs should not be pre-processed at all
+                    # if is_var and not intermediary:
+                    if is_var:
+                        continue
+
+                    # create a dictionary to lookup resourcescenario by resource attribute ID
+                    self.res_scens[rs.resource_attr_id] = rs
+
+                    # load the metadata
+                    metadata = json.loads(rs.value.metadata)
+
+                    # identify as function or not
+                    is_function = metadata.get('use_function', 'N') == 'Y'
+
+                    # get attr name
+                    attr_name = res_attr['attr_name']
+                    attr_id = res_attr['attr_id']
+
+                    # get data type
+                    data_type = rs.value.type
+
+                    # update data type
+                    self.res_attrs[rs.resource_attr_id]['data_type'] = data_type
+
+                    # default blocks
+                    # NB: self.block_params should be defined
+                    # TODO: update has_blocks from template, not metadata
+                    # has_blocks = attr_name in self.block_params or metadata.get('has_blocks', 'N') == 'Y'
+                    has_blocks = False
+                    blocks = [(0, 0)]
+
+                    param_name = get_param_name(resource_type, attr_name)
+
+                    parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
+
+                    # TODO: get fill_value from dataset/ttype (this should be user-specified)
+                    self.evaluator.data_type = data_type
+                    value = None
+                    try:
+                        # Intermediary output functions are not evaluated at this stage, as they may depend on calculated values
+                        # if not (intermediary and is_var and is_function):
+                        if not (is_var and is_function):
+                            value = self.evaluator.eval_data(
+                                value=rs.value,
+                                do_eval=False,
+                                fill_value=0,
+                                has_blocks=has_blocks,
+                                date_format=self.date_format,
+                                parentkey=parentkey
+                            )
+                    except:
+                        raise
+
+                    if value is None or type(value) == str and not value:
+                        continue
+
+                    # TODO: add generic unit conversion utility here
+                    dimension = rs.value.dimension
+
+                    if data_type == 'scalar':
+                        try:
+                            if param_name not in self.variables:
+                                self.variables[param_name] = {}
+
+                            value = float(value)  # TODO: add conversion?
+
+                            self.variables[param_name][idx] = value
+                        except:
+                            # print('scalar problem')
+                            pass
+
+                    elif data_type == 'descriptor':  # this could change later
+                        if param_name not in self.variables:
+                            self.variables[param_name] = {}
+                        self.variables[param_name][idx] = value
+
+                    elif data_type == 'timeseries':
+                        values = value
+                        function = None
+
+                        try:
+                            if is_function:
+                                function = metadata['function']
+                                if not function:  # if there is no function, this will be treated as no dataset
+                                    continue
+
+                            # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
+                            if has_blocks:
+                                values = add_subblocks(values, param_name, self.default_subblocks)
+
+                            if param_name not in self.timeseries:
+                                self.timeseries[param_name] = {}
+
+                            self.timeseries[param_name][idx] = {
+                                'data_type': data_type,
+                                'values': values,
+                                'is_function': is_function,
+                                'function': function,
+                                'has_blocks': has_blocks,
+                            }
+                        except:
+                            raise
+
+                    self.store[parentkey] = value
+
+                    # update resource blocks to match max of this type block and previous type blocks
+                    type_blocks = self.blocks[resource_type]
+                    if idx in type_blocks:
+                        blocks = blocks if len(blocks) > len(type_blocks[idx]) else type_blocks[idx]
+                    self.blocks[resource_type][idx] = blocks
+
                 except Exception as err:
-                    resource_name = ''
                     if resource_type == 'node':
                         resource_name = self.nodes.get(resource_id, {}).get('name')
                     elif resource_type == 'link':
@@ -393,67 +462,8 @@ class WaterSystem(object):
                         err,
                         'This error occurred when calculating {} for {}.'.format(rs['value']['name'], resource_name)
                     )
+
                     raise Exception(msg)
-
-                if type(value) == str and not value:
-                    continue
-
-                # TODO: add generic unit conversion utility here
-                dimension = rs.value.dimension
-
-                if data_type == 'scalar':
-                    try:
-                        if param_name not in self.variables:
-                            self.variables[param_name] = {}
-
-                        value = float(value)  # TODO: add conversion?
-
-                        self.variables[param_name][idx] = value
-                    except:
-                        # print('scalar problem')
-                        pass
-
-                elif data_type == 'descriptor':  # this could change later
-                    if param_name not in self.variables:
-                        self.variables[param_name] = {}
-                    self.variables[param_name][idx] = value
-
-                elif data_type == 'timeseries':
-                    values = value
-                    function = None
-
-                    try:
-                        if is_function:
-                            function = metadata['function']
-                            if not function:  # if there is no function, this will be treated as no dataset
-                                continue
-
-                        # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
-                        # if has_blocks and len(blocks) == 1:
-                        if has_blocks:
-                            values = add_subblocks(values, param_name, self.default_subblocks)
-                            blocks = list(values.keys())
-
-                        if param_name not in self.timeseries:
-                            self.timeseries[param_name] = {}
-
-                        self.timeseries[param_name][idx] = {
-                            'data_type': data_type,
-                            'values': values,
-                            'is_function': is_function,
-                            'function': function,
-                            'has_blocks': has_blocks,
-                        }
-                    except:
-                        raise
-
-                self.store[parentkey] = value
-
-                # update resource blocks to match max of this type block and previous type blocks
-                type_blocks = self.blocks[resource_type]
-                if idx in type_blocks:
-                    blocks = blocks if len(blocks) > len(type_blocks[idx]) else type_blocks[idx]
-                self.blocks[resource_type][idx] = blocks
 
     def initialize(self, supersubscenario):
         """A wrapper for all initialization steps."""
@@ -565,14 +575,14 @@ class WaterSystem(object):
                         }
 
     def update_param(self, idx, param_name, dates_as_string, values=None, is_function=False, func=None,
-                     has_blocks=False, scope='model', initialize=False):
+                     has_blocks=False, scope='model'):
 
         try:
             param = self.params[param_name]
-            intermediary = param['intermediary']
+            # intermediary = param['intermediary']
 
-            if scope == 'model' and intermediary or scope == 'intermediary' and not intermediary:
-                return
+            # if scope == 'model' and intermediary or scope == 'intermediary' and not intermediary:
+            #     return
 
             dimension = param['dimension']
             data_type = param['data_type']
@@ -582,14 +592,12 @@ class WaterSystem(object):
             startup_date = self.variables.get('{}StartupDate'.format(resource_type), {}).get(idx, '')
 
             if resource_type == 'network':
-                resource_id = self.network.id
                 resource = self.network
             elif resource_type == 'node':
-                resource_id = idx
-                resource = self.nodes.get(resource_id)
+                resource = self.nodes.get(idx)
             else:
-                resource_id = idx
-                resource = self.links.get(self.link_nodes.get(resource_id))
+                resource = self.links.get(idx)
+            resource_id = resource.id
             parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
 
             if is_function:
@@ -642,50 +650,44 @@ class WaterSystem(object):
                     else:
                         val = vals[datetime]
 
-                    if scope == 'intermediary' and intermediary:
-                        self.store_value(resource_type, resource_id, attr_id, datetime, val)
+                    # if scope == 'intermediary' and intermediary:
+                    #     self.store_value(resource_type, resource_id, attr_id, datetime, val)
+                    self.store_value(resource_type, resource_id, attr_id, datetime, val)
 
-                    elif scope == 'model' and not intermediary:
+                    # elif scope == 'model' and not intermediary:
 
-                        if val is not None:
-                            scale = param.properties.get('scale', 1)
-                            # only convert if updating the LP model
-                            if dimension == 'Volumetric flow rate':
-                                val = convert(val * scale, dimension, unit, 'hm^3 day^-1')
-                            elif dimension == 'Volume':
-                                val = convert(val * scale, dimension, unit, 'hm^3')
+                    if val is not None:
+                        scale = param.properties.get('scale', 1)
+                        # only convert if updating the LP model
+                        if dimension == 'Volumetric flow rate':
+                            val = convert(val * scale, dimension, unit, 'hm^3 day^-1')
+                        elif dimension == 'Volume':
+                            val = convert(val * scale, dimension, unit, 'hm^3')
 
-                        # create key
-                        pyomo_key = list(idx) + [i] if type(idx) == tuple else [idx, i]
-                        if has_blocks:
-                            # add block & subblock to key
-                            pyomo_key.insert(-1, c[0])
-                            pyomo_key.insert(-1, c[1])
-                        pyomo_key = tuple(pyomo_key)
+                    try:
+                        if param_name == 'nodeRunoff':
+                            self.model.non_storage[resource_id].min_flow = val
+                            self.model.non_storage[resource_id].max_flow = val
+                        elif param_name == 'nodeDemand':
+                            if hasattr(self.model.non_storage[resource_id], 'mrf'):
+                                self.model.non_storage[resource_id].mrf = val  # this is a flow requirement
+                            else:
+                                self.model.non_storage[resource_id].max_flow = val
+                        elif param_name == 'nodeValue':
+                            if resource_id in self.model.non_storage:
+                                self.model.non_storage[resource_id].cost = -val
+                            elif idx in self.model.storage:
+                                self.model.storage[resource_id].cost = -val
+                        elif param_name == 'nodeViolationCost':  # this is a flow requirement
+                            self.model.non_storage[resource_id].cost = 0.0
+                            self.model.non_storage[resource_id].mrf_cost = -val
+                        elif param_name == 'nodeStorageDemand':
+                            self.model.storage[resource_id].max_volume = val
+                        elif param_name == 'linkFlowCapacity':
+                            self.model.links[resource_id].max_flow = val
 
-                        try:
-                            if param_name == 'nodeRunoff':
-                                self.model.non_storage[idx].min_flow = val
-                                self.model.non_storage[idx].max_flow = val
-                            elif param_name == 'nodeDemand':
-                                if hasattr(self.model.non_storage[idx], 'mrf'):
-                                    self.model.non_storage[idx].mrf = val
-                                else:
-                                    self.model.non_storage[idx].max_flow = val
-                            elif param_name == 'nodePriority':
-                                if idx in self.model.non_storage:
-                                    if hasattr(self.model.non_storage[idx], 'mrf_cost'):
-                                        self.model.non_storage[idx].cost = 0.0
-                                        self.model.non_storage[idx].mrf_cost = -val
-                                    else:
-                                        self.model.non_storage[idx].cost = -val
-                                elif idx in self.model.storage:
-                                    self.model.storage[idx].cost = -val
-                            elif param_name == 'nodeStorageDemand':
-                                self.model.storage[idx].max_volume = val
-
-                        except:
-                            pass  # likely the variable simply doesn't exist in the model
+                    except:
+                        pass  # unclear what the exception is
         except:
             raise
 
@@ -697,8 +699,8 @@ class WaterSystem(object):
         if initialize:
             for node_id in node_ids:
                 initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
-                self.model.storage[node_id].initial_volume = \
-                    convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
+                initial_volume = convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
+                self.model.storage[node_id].initial_volume = initial_volume
 
         else:
             for node_id, node in self.model.storage.items():
@@ -706,9 +708,9 @@ class WaterSystem(object):
 
         return
 
-    def update_boundary_conditions(self, tsi, tsf, scope, initialize=False):
+    def update_boundary_conditions(self, tsi, tsf, scope='model'):
         """
-        Update boundary conditions. If initialize is True, this will create a variables object for use in creating the model (i.e., via init_pyomo_params). Otherwise, it will update the model instance.
+        Update boundary conditions.
         """
         dates_as_string = self.dates_as_string[tsi:tsf]
         self.evaluator.tsi = tsi
@@ -716,6 +718,7 @@ class WaterSystem(object):
 
         for param_name, params in self.timeseries.items():
             for idx, p in params.items():
+                has_blocks = p.get('has_blocks', False)
                 self.update_param(
                     idx,
                     param_name,
@@ -723,9 +726,8 @@ class WaterSystem(object):
                     values=p.get('values'),
                     is_function=p.get('is_function'),
                     func=p.get('function'),
-                    has_blocks=p.get('has_blocks'),
+                    has_blocks=has_blocks,
                     scope=scope,
-                    initialize=initialize
                 )
 
     def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
