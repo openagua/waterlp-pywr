@@ -86,12 +86,13 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
         current_dates = system.dates[ts:ts + system.foresight_periods]
         current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
-
+        if ts != runs[-1]:
+            step = (system.dates[ts + 1] - system.dates[ts]).days
         # 1. Update timesteps
         system.model.update_timesteps(
             start=current_dates_as_string[0],
             end=current_dates_as_string[-1],
-            step=10
+            step=step
         )
 
         try:
@@ -111,7 +112,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             new_now = datetime.now()
             should_report_progress = ts == 0 or current_step == n or (new_now - now).seconds >= 2
-                # system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
+            # system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
 
             if system.scenario.reporter and should_report_progress:
                 system.scenario.reporter.report(action='step')

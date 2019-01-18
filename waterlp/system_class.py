@@ -683,6 +683,10 @@ class WaterSystem(object):
                             self.model.non_storage[resource_id].mrf_cost = -val
                         elif param_name == 'nodeStorageDemand':
                             self.model.storage[resource_id].max_volume = val
+                        # elif param_name == 'nodeStorageCapacity':
+                        #     self.model.storage[resource_id].max_volume = val
+                        elif param_name == 'nodeInactivePool':
+                            self.model.storage[resource_id].min_volume = val
                         elif param_name == 'linkFlowCapacity':
                             self.model.links[resource_id].max_flow = val
 
@@ -754,6 +758,12 @@ class WaterSystem(object):
                 param_name='nodeStorage',
                 timestamp=timesteps[0],
                 value=node.volume[0],
+            )
+            self.store_results(
+                res_id=res_id,
+                param_name='nodeOutflow',
+                timestamp=timesteps[0],
+                value=node.flow[0],
             )
 
     def store_results(self, res_id=None, param_name=None, timestamp=None, value=None):
