@@ -106,6 +106,7 @@ class NetworkModel(object):
                 self.non_storage[node_id] = Output(model, name=name)
             elif node_type in input_types:
                 self.non_storage[node_id] = Input(model, name=name)
+                self.non_storage[node_id].max_flow = 0
             elif node_type in ifr_types:
                 self.non_storage[node_id] = RiverGauge(model, name=name)
             else:
