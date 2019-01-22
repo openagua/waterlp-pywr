@@ -1,3 +1,4 @@
+# TODO: convert to Alpine to reduce image size
 FROM ubuntu:latest
 MAINTAINER David Rheinheimer "drheinheimer@umass.edu"
 
@@ -9,7 +10,7 @@ RUN python3 -m pip install --upgrade pip
 ADD . /user/local/model
 WORKDIR /user/local/model
 
-# do not use "--no-cache-dir" below
+# do not use "--no-cache-dir" when installing requirements
 RUN pip3 install -r requirements.txt
 
 CMD ["python3", "listen.py"]
