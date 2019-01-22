@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-docker build -t openagua/waterlp-sf .
-docker push openagua/waterlp-sf
+docker build -t openagua/waterlp-pywr .
+docker push openagua/waterlp-pywr:test
