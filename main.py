@@ -20,7 +20,7 @@ from waterlp.utils import create_subscenarios
 from waterlp.scenario_main import run_scenario
 
 
-def run_scenarios(args, log, **kwargs):
+def run_scenarios(args, runlog, networklog, **kwargs):
     """
         This is a wrapper for running all the scenarios, where scenario runs are
         processor-independent. As much of the Pyomo model is created here as
@@ -39,6 +39,12 @@ def run_scenarios(args, log, **kwargs):
         print("DEBUG OFF")
 
     args.starttime = datetime.now()  # args.start_time is iso-formatted, but this is still probably redundant
+
+    runlog.info('{app_name} started at UTC {start_time} by {user_name}'.format(
+        app_name=args.app_name,
+        start_time=args.start_time,
+        user_name=args.hydra_username
+    ))
 
     print("================================================")
     print("STARTING RUN")
@@ -152,7 +158,6 @@ def run_scenarios(args, log, **kwargs):
 
     if args.debug:
         run_scenario(all_supersubscenarios[0], args=args, **kwargs)
-        return
     else:
         p = partial(run_scenario, args=args, verbose=verbose, **kwargs)
 
@@ -169,7 +174,13 @@ def run_scenarios(args, log, **kwargs):
         pool.imap(p, all_supersubscenarios, chunksize=chunksize)
         pool.close()
         pool.join()
-        return
+
+    runlog.info('{app_name} ended at UTC {end_time}'.format(
+        app_name=args.app_name,
+        end_time=datetime.utcnow(),
+    ))
+
+    return
 
 
 def commandline_parser():
@@ -261,7 +272,7 @@ def run_model(args_list, **kwargs):
 
     # create top-level log file
     logfile = os.path.join(args.log_dir, 'log.txt')
-    log = create_logger(args.app_name, logfile, '%(asctime)s - %(message)s')
+    networklog = create_logger(args.app_name, logfile, '%(asctime)s - %(message)s')
 
     # pre-processing
     if args.scenario_ids:
@@ -270,12 +281,14 @@ def run_model(args_list, **kwargs):
     argdict = args.__dict__.copy()
     argtuples = sorted(argdict.items())
     args_str = '\n\t'.join([''] + ['{}: {}'.format(a[0], a[1]) for a in argtuples])
-    log.info('started model run with args: %s' % args_str)
+    networklog.info('started model run with args: %s' % args_str)
+
+    runlog = create_logger('OpenAgua', os.path.join(here, 'logs', 'log.txt'), '%(asctime)s - %(message)s')
 
     if 'ably_auth_url' not in kwargs:
         kwargs['ably_auth_url'] = os.environ.get('ABLY_AUTH_URL')
 
-    run_scenarios(args, log, **kwargs)
+    run_scenarios(args, runlog, networklog, **kwargs)
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ results/
 build/
 waterlp/__pycache__/
 waterlp/logs/*
+waterlp/logs
 logs/*
 *.wpr
 *.wpu
