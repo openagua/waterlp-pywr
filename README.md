@@ -1,6 +1,7 @@
 Documentation forthcoming. In the meantime:
 
 ## Running with Docker
+
 This can be run in listening mode using Docker, with `openagua/waterlp-pywr`. Several environment variables are needed:
 
 * `AWS_S3_BUCKET`: The root AWS S3 bucket where input/output files are stored.
