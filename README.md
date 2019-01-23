@@ -9,6 +9,7 @@ This can be run in listening mode using Docker, with `openagua/waterlp-pywr`. Se
 * `AWS_SECRET_ACCESS_KEY`: The AWS secret access key for S3 access
 * `RABBITMQ_HOST`: The host for listening for new tasks
 * `MODEL_KEY`: The unique model key associated with the model (this is used for both logging in to the RabbitMQ host, as well as the queue to listen to)
+* `RUN_KEY`: A unique key associated with the model run in OpenAgua; for the time being, this should be the model run name.
 
 There are [several ways to pass environment variables to Docker](https://docs.docker.com/engine/reference/commandline/run/#set-environment-variables--e---env---env-file).
 
