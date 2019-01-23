@@ -14,5 +14,17 @@ There are [several ways to pass environment variables to Docker](https://docs.do
 
 If, for example, the variables are stored in a file called `env.list`, the Docker image can be run (in detached mode) as:
 ```bash
-sudo docker run -d --env-file ./env.list openagua/waterlp-pywr
+sudo docker run -d --env-file ./env.list --name waterlp openagua/waterlp-pywr
+```
+
+To stop and remove this container (for example to update the docker image):
+```bash
+sudo docker rm --force waterlp
+```
+
+These can be combined into a single bash script to upgrade the container (killing the old container):
+
+```bash
+sudo docker rm --force waterlp
+sudo docker run -d --env-file ./env.list --name waterlp openagua/waterlp-pywr
 ```
