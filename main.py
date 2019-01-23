@@ -272,6 +272,9 @@ def run_model(args_list, **kwargs):
     args_str = '\n\t'.join([''] + ['{}: {}'.format(a[0], a[1]) for a in argtuples])
     log.info('started model run with args: %s' % args_str)
 
+    if 'ably_auth_url' not in kwargs:
+        kwargs['ably_auth_url'] = os.environ.get('ABLY_AUTH_URL')
+
     run_scenarios(args, log, **kwargs)
 
 

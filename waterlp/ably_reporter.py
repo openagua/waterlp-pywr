@@ -19,7 +19,12 @@ class AblyReporter(object):
         # elif ably_token_request:
         #     rest = AblyRest(token=ably_token_request)
         else:
-            rest = AblyRest(key=environ.get('ABLY_API_KEY'))
+            ably_api_key = environ.get('ABLY_API_KEY')
+            if ably_api_key:
+                rest = AblyRest(key=environ.get('ABLY_API_KEY'))
+            else:
+                self.channel = None
+                return
         self.channel = rest.channels.get(channel_name)
         self.updater = None
 
@@ -39,7 +44,7 @@ class AblyReporter(object):
     def report(self, action, **payload):
         if self.updater:
             payload = self.updater(action=action, **payload)
-        if action in ['step', 'save']:
+        if action in ['step', 'save'] and self.channel:
             self.channel.publish(action, payload)
         else:
             if self.post_reporter:
