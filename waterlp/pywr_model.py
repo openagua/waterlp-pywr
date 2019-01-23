@@ -111,7 +111,7 @@ class NetworkModel(object):
             else:
                 self.non_storage[node_id] = Link(model, name=name)
 
-            if node_type in input_types + output_types:
+            if node_type in input_types:
                 self.non_storage[node_id].max_flow = 0
 
         # create network connections
