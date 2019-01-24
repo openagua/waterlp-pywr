@@ -831,14 +831,15 @@ class WaterSystem(object):
         log_dir = 'log/{run_name}'.format(run_name=self.args.run_name)
 
         for filename in ['pywr_glpk_debug.lp', 'pywr_glpk_debug.mps']:
-            with open(filename, 'r') as file:
-                content = file.read()
-                key = '{network_folder}/{log_dir}/{filename}'.format(
-                    network_folder=self.storage.folder,
-                    log_dir=log_dir,
-                    filename=filename
-                )
-                self.s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
+            if os.path.exists(filename):
+                with open(filename, 'r') as file:
+                    content = file.read()
+                    key = '{network_folder}/{log_dir}/{filename}'.format(
+                        network_folder=self.storage.folder,
+                        log_dir=log_dir,
+                        filename=filename
+                    )
+                    self.s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
 
         return log_dir
 
