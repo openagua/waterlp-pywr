@@ -44,12 +44,11 @@ class AblyReporter(object):
     def report(self, action, **payload):
         if self.updater:
             payload = self.updater(action=action, **payload)
-        if action in ['step', 'save'] and self.channel:
-            self.channel.publish(action, payload)
-        else:
-            if self.post_reporter:
-                self.post_reporter.report(**payload)
-            return
+        if action in ['step', 'save']:
+            if self.channel:
+                self.channel.publish(action, payload)
+            # elif self.post_reporter and self.post_reporter.is_main_reporter:
+            #     self.post_reporter.report(**payload)
 
         if action in ['done', 'error']:
             return
