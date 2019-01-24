@@ -22,6 +22,15 @@ class Reporter:
             payload = {**self.base_payload, **payload}
         return requests.post('{}/{}'.format(self._post_url, action), json=payload)
 
+    def start(self, is_main_reporter=True, **payload):
+        self.is_main_reporter = is_main_reporter
+        if is_main_reporter:
+            # self._init_heartbeat()
+            self.start_time = time.time()
+            self.old_elapsed_time = 0
+            self.base_payload = payload
+        self.send(**payload)
+
     def report(self, **payload):
         action = payload.get('action')
         if self.updater:
@@ -37,15 +46,6 @@ class Reporter:
                 self._cancel_heartbeat()
             payload['extra_info'] = payload.get('message')
         return self.send(**payload)
-
-    def start(self, is_main_reporter=True, **payload):
-        self.is_main_reporter = is_main_reporter
-        if is_main_reporter:
-            # self._init_heartbeat()
-            self.start_time = time.time()
-            self.old_elapsed_time = 0
-            self.base_payload = payload
-        self.send(**payload)
 
     def _init_heartbeat(self):
         self.heartbeat_timer = threading.Timer(5, self._heartbeat).start()
