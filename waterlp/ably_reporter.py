@@ -5,9 +5,8 @@ import logging
 
 class AblyReporter(object):
 
-    def __init__(self, args, post_reporter, ably_auth_url=None):
+    def __init__(self, args, ably_auth_url=None):
         self.args = args
-        self.post_reporter = post_reporter
         channel_name = u'com.openagua.update_s{}n{}'.format(args.source_id, args.network_id)
         if ably_auth_url:
             logging.getLogger('ably').setLevel(logging.CRITICAL)

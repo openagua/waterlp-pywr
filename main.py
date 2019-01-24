@@ -165,6 +165,7 @@ def run_scenarios(args, runlog, networklog, **kwargs):
         poolsize = mp.cpu_count()
         maxtasks = None
         chunksize = 1
+
         pool = mp.Pool(processes=poolsize, maxtasksperchild=maxtasks)
 
         msg = 'Running {} subscenarios in multicore mode with {} workers, {} chunks each.' \
