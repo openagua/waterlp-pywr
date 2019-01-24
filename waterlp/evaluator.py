@@ -6,6 +6,7 @@ from copy import copy
 from numpy import mean
 from math import isnan, log
 import pandas
+import numpy
 from calendar import isleap
 
 import pendulum
@@ -678,18 +679,16 @@ class Evaluator:
                             end = pendulum.parse(end)
 
                         if key != parentkey:
-                            if flavor == 'pandas':
-                                result = value.loc[start.to_datetime_string():end.to_datetime_string()].agg(agg)[0]
-                            else:
-                                idx_start = self.dates.index(start)
-                                idx_end = self.dates.index(end)
-                                if has_blocks:
-                                    value = value[0]  # TODO: make this more sophisticated
-                                values = list(value.values())[idx_start:idx_end]
-                                if agg == 'sum':
-                                    result = sum(values)
-                                elif agg == 'mean':
-                                    result = sum(values) / len(values)
+                            start_as_string = start.to_datetime_string()
+                            end_as_string = end.to_datetime_string()
+                            if default_flavor == 'pandas':
+                                result = value.loc[start_as_string:end_as_string].agg(agg)[0]
+                            elif default_flavor == 'dict':
+                                values = list(value.values())[0]
+                                vals = [values[key] for key in values.keys() if
+                                        key >= start_as_string and key <= end_as_string]
+                                if agg == 'mean':
+                                    result = numpy.mean(vals)
 
                         else:
                             result = None
