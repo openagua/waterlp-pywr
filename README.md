@@ -2,6 +2,10 @@ Documentation forthcoming. In the meantime:
 
 ## Running with Docker
 
+Several options can be passed when starting a Docker container. The WaterLP Docker container should be run with at least:
+1. environment variables
+2. a log file directory
+
 This can be run in listening mode using Docker, with `openagua/waterlp-pywr`. Several environment variables are needed:
 
 * `AWS_S3_BUCKET`: The root AWS S3 bucket where input/output files are stored
@@ -13,9 +17,15 @@ This can be run in listening mode using Docker, with `openagua/waterlp-pywr`. Se
 
 There are [several ways to pass environment variables to Docker](https://docs.docker.com/engine/reference/commandline/run/#set-environment-variables--e---env---env-file).
 
-If, for example, the variables are stored in a file called `env.list`, the Docker image can be run (in detached mode) as:
+WaterLP creates log files that can be saved on the host machine by mapping the WaterLP log file directory to the host machine directory via the `--volume` flag.
+
+### Example:
+
+In this example, variables will be stored in a file called `env.list`, and log files will be stored in `/log/waterlp` on the host machine. The container will be named `waterlp`, and will be run in "dettached" mode using the `-d` flag. 
+
+The container with these options is run with:
 ```bash
-sudo docker run -d --env-file ./env.list --name waterlp openagua/waterlp-pywr
+sudo docker run -d --env-file ./env.list --volume /log:/log  --name waterlp openagua/waterlp-pywr
 ```
 
 To stop and remove this container (for example to update the docker image):
