@@ -262,7 +262,7 @@ def run_model(args_list, **kwargs):
     # log file location - based on user
 
     # initialize log directories
-    args.log_dir = os.path.join(here, 'logs', args.log_dir)
+    args.log_dir = os.path.join('/log/waterlp', args.log_dir)
 
     # specify scenarios log dir
     args.scenario_log_dir = 'scenario_logs'
