@@ -5,8 +5,9 @@ import logging
 
 class AblyReporter(object):
 
-    def __init__(self, args, ably_auth_url=None):
+    def __init__(self, args, ably_auth_url=None, post_reporter=None):
         self.args = args
+        self.post_reporter = post_reporter
         channel_name = u'com.openagua.update_s{}n{}'.format(args.source_id, args.network_id)
         if ably_auth_url:
             logging.getLogger('ably').setLevel(logging.CRITICAL)
@@ -44,10 +45,11 @@ class AblyReporter(object):
         if self.updater:
             payload = self.updater(action=action, **payload)
         if action in ['step', 'save']:
-            if self.channel:
-                self.channel.publish(action, payload)
-            # elif self.post_reporter and self.post_reporter.is_main_reporter:
-            #     self.post_reporter.report(**payload)
+            self.channel.publish(action, payload)
+        else:
+            if self.post_reporter:
+                self.post_reporter.report(**payload)
+            return
 
         if action in ['done', 'error']:
             return

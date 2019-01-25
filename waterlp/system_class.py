@@ -840,6 +840,8 @@ class WaterSystem(object):
                         filename=filename
                     )
                     self.s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
+            else:
+                return None
 
         return log_dir
 
