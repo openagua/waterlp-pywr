@@ -10,6 +10,6 @@ RUN python3 -m pip install --upgrade pip
 ADD . /user/local/model
 WORKDIR /user/local/model
 
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install -r requirements.txt
 
 CMD ["python3", "listen.py"]
