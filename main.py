@@ -4,6 +4,7 @@ import argparse
 from ast import literal_eval
 import multiprocessing as mp
 import os
+import shutil
 import sys
 import uuid
 import getpass
@@ -21,7 +22,7 @@ from waterlp.utils import create_subscenarios
 from waterlp.scenario_main import run_scenario
 
 
-def run_scenarios(args, runlog, networklog, **kwargs):
+def run_scenarios(args, networklog, **kwargs):
     """
         This is a wrapper for running all the scenarios, where scenario runs are
         processor-independent. As much of the Pyomo model is created here as
@@ -40,12 +41,6 @@ def run_scenarios(args, runlog, networklog, **kwargs):
         print("DEBUG OFF")
 
     args.starttime = datetime.now()  # args.start_time is iso-formatted, but this is still probably redundant
-
-    runlog.info('{app_name} started at UTC {start_time} by {user_name}'.format(
-        app_name=args.app_name,
-        start_time=args.start_time,
-        user_name=args.hydra_username
-    ))
 
     print("================================================")
     print("STARTING RUN")
@@ -94,7 +89,7 @@ def run_scenarios(args, runlog, networklog, **kwargs):
 
         start_payload = scenario.update_payload(action='start')
         if post_reporter:
-            networklog.info(message="Model started")
+            networklog.info(msg="Model started")
             post_reporter.start(is_main_reporter=(args.message_protocol == 'post'), **start_payload)
 
         else:
@@ -177,11 +172,6 @@ def run_scenarios(args, runlog, networklog, **kwargs):
         pool.close()
         pool.join()
 
-    runlog.info('{app_name} ended at UTC {end_time}'.format(
-        app_name=args.app_name,
-        end_time=datetime.utcnow(),
-    ))
-
     return
 
 
@@ -251,20 +241,10 @@ def commandline_parser():
     return parser
 
 
-args = {}
-
-
-def run_model(args_list, **kwargs):
-    global args
-    parser = commandline_parser()
-    args, unknown = parser.parse_known_args(args_list)
-    here = os.path.abspath(os.path.dirname(__file__))
-
-    # log file location - based on user
+def run_model(args, logs_dir, **kwargs):
 
     # initialize log directories
-    logs_base_dir = '/home/{}/.waterlp/logs'.format(getpass.getuser())
-    args.log_dir = os.path.join(logs_base_dir, args.log_dir)
+    args.log_dir = os.path.join(logs_dir, args.log_dir)
 
     # specify scenarios log dir
     args.scenario_log_dir = 'scenario_logs'
@@ -288,16 +268,23 @@ def run_model(args_list, **kwargs):
     args_str = '\n\t'.join([''] + ['{}: {}'.format(a[0], a[1]) for a in argtuples])
     networklog.info('started model run with args: %s' % args_str)
 
-    runlog = create_logger('OpenAgua', os.path.join(logs_base_dir, 'log.txt'), '%(asctime)s - %(message)s')
-
     if 'ably_auth_url' not in kwargs:
         kwargs['ably_auth_url'] = os.environ.get('ABLY_AUTH_URL')
 
-    run_scenarios(args, runlog, networklog, **kwargs)
+    run_scenarios(args, networklog, **kwargs)
+
+    return
 
 
 if __name__ == '__main__':
     try:
-        run_model(sys.argv[1:])
+        parser = commandline_parser()
+        args, unknown = parser.parse_known_args(sys.argv[1:])
+
+        app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
+        if os.path.exists(app_dir):
+            shutil.rmtree(app_dir)
+        logs_dir = '{}/logs'.format(app_dir)
+        run_model(args, logs_dir)
     except Exception as e:
         print(e, file=sys.stderr)

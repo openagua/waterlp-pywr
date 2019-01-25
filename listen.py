@@ -1,23 +1,43 @@
 #!/usr/bin/env python
 import json
+import getpass
+from shutil import rmtree
 import pika
 import os
-from main import run_model
+from main import commandline_parser, run_model
+
+from waterlp.logger import RunLogger
 
 
 def callback(ch, method, properties, body):
-    try:
-        message = json.loads(body)
-        env = message.get('env', {})
-        args = message.get('args')
-        kwargs = message.get('kwargs')
+    message = json.loads(body)
+    env = message.get('env', {})
+    args = message.get('args')
+    kwargs = message.get('kwargs')
 
-        for key, value in env.items():
-            os.environ[key] = value
-        print(" [x] Running model with %r" % args)
-        run_model(args_list=args, **kwargs)
-    except:
-        pass  # fail silently for now
+    app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
+    logs_dir = '{}/logs'.format(app_dir)
+
+    if os.path.exists(app_dir):
+        rmtree(app_dir)
+    os.makedirs(logs_dir)
+
+    for key, value in env.items():
+        os.environ[key] = value
+    print(" [x] Running model with %r" % args)
+
+    parser = commandline_parser()
+    args, unknown = parser.parse_known_args(args)
+
+    RunLog = RunLogger(name='waterlp', app_name=args.app_name, run_name=args.run_name, logs_dir=logs_dir,
+                       username=args.hydra_username)
+
+    try:
+        RunLog.log_start()
+        run_model(args, logs_dir, **kwargs)
+        RunLog.log_finish()
+    except Exception as err:
+        RunLog.log_error(message=str(err))
 
 
 def start_listening(model_key):
