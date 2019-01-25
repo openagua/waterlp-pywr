@@ -18,9 +18,9 @@ def callback(ch, method, properties, body):
     app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
     logs_dir = '{}/logs'.format(app_dir)
 
-    if os.path.exists(app_dir):
-        rmtree(app_dir)
-    os.makedirs(logs_dir)
+    # if os.path.exists(app_dir):
+    #     rmtree(app_dir)
+    # os.makedirs(logs_dir)
 
     for key, value in env.items():
         os.environ[key] = value
@@ -41,6 +41,14 @@ def callback(ch, method, properties, body):
 
 
 def start_listening(model_key):
+
+    # set up logging
+    app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
+    logs_dir = '{}/logs'.format(app_dir)
+    if os.path.exists(app_dir):
+        rmtree(app_dir)
+    os.makedirs(logs_dir)
+
     queue_name = 'model-{}'.format(model_key)
     run_key = os.environ.get('RUN_KEY')
     if run_key:

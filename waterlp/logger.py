@@ -23,7 +23,7 @@ class RunLogger(object):
         self.log = create_logger(name, path.join(logs_dir, 'log.txt'), '%(asctime)s - %(message)s')
 
     def message(self, msg):
-        return '{app_name} / {username} {run_name} - {msg}'.format(
+        return '{app_name} / {run_name} ({username}) - {msg}'.format(
             app_name=self.app_name,
             username=self.username,
             run_name=self.run_name,
