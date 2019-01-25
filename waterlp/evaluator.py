@@ -635,7 +635,7 @@ class Evaluator:
 
             default_flavor = None
             if rs_value['type'] == 'timeseries':
-                default_flavor = None
+                default_flavor = 'dict'
             elif rs_value['type'] == 'array':
                 default_flavor = 'list'
             flavor = kwargs.get('flavor', default_flavor)
@@ -684,11 +684,16 @@ class Evaluator:
                             if default_flavor == 'pandas':
                                 result = value.loc[start_as_string:end_as_string].agg(agg)[0]
                             elif default_flavor == 'dict':
-                                values = list(value.values())[0]
+                                if flatten:
+                                    values = value
+                                else:
+                                    values = list(value.values())[0]
                                 vals = [values[key] for key in values.keys() if
                                         key >= start_as_string and key <= end_as_string]
                                 if agg == 'mean':
                                     result = numpy.mean(vals)
+                                elif agg == 'sum':
+                                    result = numpy.sum(vals)
 
                         else:
                             result = None
