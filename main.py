@@ -288,7 +288,7 @@ def run_model(args_list, **kwargs):
     args_str = '\n\t'.join([''] + ['{}: {}'.format(a[0], a[1]) for a in argtuples])
     networklog.info('started model run with args: %s' % args_str)
 
-    runlog = create_logger('OpenAgua', os.path.join(here, 'logs', 'log.txt'), '%(asctime)s - %(message)s')
+    runlog = create_logger('OpenAgua', os.path.join(logs_base_dir, 'log.txt'), '%(asctime)s - %(message)s')
 
     if 'ably_auth_url' not in kwargs:
         kwargs['ably_auth_url'] = os.environ.get('ABLY_AUTH_URL')
