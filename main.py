@@ -6,6 +6,7 @@ import multiprocessing as mp
 import os
 import sys
 import uuid
+import getpass
 from datetime import datetime
 from functools import partial
 from itertools import product
@@ -262,13 +263,16 @@ def run_model(args_list, **kwargs):
     # log file location - based on user
 
     # initialize log directories
-    args.log_dir = os.path.join('/log/waterlp', args.log_dir)
+    logs_base_dir = '/home/{}/.waterlp/logs'.format(getpass.getuser())
+    args.log_dir = os.path.join(logs_base_dir, args.log_dir)
 
     # specify scenarios log dir
     args.scenario_log_dir = 'scenario_logs'
     args.scenario_log_dir = os.path.join(args.log_dir, args.scenario_log_dir)
 
     if not os.path.exists(args.log_dir):
+        os.makedirs(args.log_dir)
+    if not os.path.exists(args.scenario_log_dir):
         os.makedirs(args.scenario_log_dir)
 
     # create top-level log file
