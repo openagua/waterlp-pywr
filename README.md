@@ -2,11 +2,39 @@ Documentation forthcoming. In the meantime:
 
 ## Running with Docker
 
-Several options can be passed when starting a Docker container. The WaterLP Docker container should be run with at least:
-1. environment variables
-2. a log file directory
+WaterLP can be run in listening mode using Docker, with `openagua/waterlp-pywr`.
 
-This can be run in listening mode using Docker, with `openagua/waterlp-pywr`. Several environment variables are needed:
+The general process for running with Docker is:
+1. Download (*pull*) the Docker image to the local machine
+2. Run a Docker container from the image.
+
+To update the image/container, any existing running container should be removed. This is demonstrated in the example below.
+
+### Download the image
+
+Download the image with:
+```bash
+sudo docker pull openagua/waterlp-pywr
+```
+
+### Run the container
+
+Running the container from the images is done with one command, with several options. The general format for running a container is:
+```bash
+sudo docker run [options] openagua/waterlp-pywr
+```
+
+The WaterLP Docker container should be run with at least the following options:
+1. detached mode (optional): `-d`
+2. environment variables
+3. a log file directory
+4. a mapping of the local time zone information to the container
+
+These are described, with a specific example Docker run command and fuller sequence of commands to make sure the Docker contiainer is up-to-date.
+
+**Environment variables**
+
+Several environment variables are needed:
 
 * `AWS_S3_BUCKET`: The root AWS S3 bucket where input/output files are stored
 * `AWS_ACCESS_KEY_ID`: The AWS access key ID for S3 access
@@ -17,15 +45,23 @@ This can be run in listening mode using Docker, with `openagua/waterlp-pywr`. Se
 
 There are [several ways to pass environment variables to Docker](https://docs.docker.com/engine/reference/commandline/run/#set-environment-variables--e---env---env-file).
 
+**Log file**
+
 WaterLP creates log files that can be saved on the host machine by mapping the WaterLP log file directory to the host machine directory via the `--volume` flag.
+
+In general, the logfile will be stored in the user's home directory, under `~/.waterlp/logs`. To map this location to the container: `--volume /home/\[user\]:/home/root`, since the container is run as root.
+
+**Time zone information**
+
+Dates--in particular Pendulum--need to know the machine time zone information. This is achieved with `--volume /etc/localtime:/etc/localtime`, assuming the host machine is Ubuntu. If not, further investigation is needed to pass this info.
 
 ### Example:
 
-In this example, variables will be stored in a file called `env.list`, and log files will be stored in `/log/waterlp` on the host machine. The container will be named `waterlp`, and will be run in "dettached" mode using the `-d` flag. 
+In this example, variables will be stored in a file called `env.list`, and log files will be stored in `/log/waterlp` on the host machine. The container will be named `waterlp`, so we can delete it easily, and will be run in "detached" mode using the `-d` flag. 
 
-The container with these options is run with:
+With `ubuntu` as the example user (as on an Amazon EC2 Ubuntu instance), the container is run with:
 ```bash
-sudo docker run -d --env-file ./env.list --volume /log:/log  --name waterlp openagua/waterlp-pywr
+sudo docker run -d --env-file ./env.list --volume /home/ubuntu:/home/root --volume /etc/localtime:/etc/localtime  --name waterlp openagua/waterlp-pywr
 ```
 
 To stop and remove this container (for example to update the docker image):
@@ -33,9 +69,10 @@ To stop and remove this container (for example to update the docker image):
 sudo docker rm --force waterlp
 ```
 
-These can be combined into a single bash script to upgrade the container (killing the old container):
+These can be brought together into a single set of commands to start/update the container (these could be put into a bash script):
 
 ```bash
+sudo docker pull openagua/waterlp-pywr
 sudo docker rm --force waterlp
-sudo docker run -d --env-file ./env.list --name waterlp openagua/waterlp-pywr
+sudo docker run -d --env-file ./env.list --volume /home/ubuntu:/home/root --volume /etc/localtime:/etc/localtime  --name waterlp openagua/waterlp-pywr
 ```
