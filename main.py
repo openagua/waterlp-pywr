@@ -94,8 +94,8 @@ def run_scenarios(args, runlog, networklog, **kwargs):
 
         start_payload = scenario.update_payload(action='start')
         if post_reporter:
-            post_reporter.start(is_main_reporter=(args.message_protocol == 'post'),
-                                **start_payload)  # kick off reporter with heartbeat
+            networklog.info(message="Model started")
+            post_reporter.start(is_main_reporter=(args.message_protocol == 'post'), **start_payload)
 
         else:
             print("Model started")
