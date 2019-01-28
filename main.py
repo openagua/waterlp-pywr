@@ -189,8 +189,11 @@ def commandline_parser():
     parser.add_argument('--app', dest='app_name', help='''Name of the app.''')
     parser.add_argument('--durl', dest='data_url', help='''The Hydra Server URL.''')
     parser.add_argument('--f', dest='filename', help='''The name of the input JSON file if running locally.''')
-    parser.add_argument('--user', dest='hydra_username', help='''The username for logging in to Hydra Server.''')
+    parser.add_argument('--user', dest='hydra_username',
+                        default=os.environ.get('HYDRA_USERNAME'),
+                        help='''The username for logging in to Hydra Server.''')
     parser.add_argument('--pw', dest='hydra_password',
+                        default=os.environ.get('HYDRA_PASSWORD'),
                         help='''The password for logging in to Hydra Server.''')
     parser.add_argument('--sid', dest='session_id',
                         help='''The Hydra Server session ID.''')
