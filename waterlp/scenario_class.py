@@ -14,6 +14,7 @@ class Scenario(object):
     def __init__(self, scenario_ids, conn, network, args):
         self.base_scenarios = []
         self.source_id = args.source_id
+        self.run_name = args.run_name
         self.source_scenarios = {}
         self.network_id = network.id
         self.reporter = None
@@ -97,6 +98,7 @@ class Scenario(object):
     def update_payload(self, action=None, **payload):
         payload.update({
             'sid': self.unique_id,
+            'name': self.run_name,
             'source_id': self.source_id,
             'network_id': self.network_id,
             'scids': self.scenario_ids,

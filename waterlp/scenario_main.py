@@ -1,15 +1,16 @@
 from datetime import datetime
 
 from waterlp.pywr_model import NetworkModel
-from waterlp.post_reporter import Reporter as PostReporter
-from waterlp.ably_reporter import AblyReporter
+from waterlp.reporters.post_reporter import Reporter as PostReporter
+from waterlp.reporters.ably_reporter import AblyReporter
 from waterlp.screen_reporter import ScreenReporter
 
 current_step = 0
 total_steps = 0
 
 
-def run_scenario(supersubscenario, args=None, verbose=False, **kwargs):
+def run_scenario(supersubscenario, args=None, verbose=False, kwargs=None):
+
     global current_step, total_steps
 
     system = supersubscenario.get('system')

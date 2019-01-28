@@ -16,7 +16,7 @@ from copy import copy
 from waterlp.connection import connection
 from waterlp.system_class import WaterSystem
 from waterlp.scenario_class import Scenario
-from waterlp.post_reporter import Reporter as PostReporter
+from waterlp.reporters.post_reporter import Reporter as PostReporter
 from waterlp.logger import create_logger
 from waterlp.utils import create_subscenarios
 from waterlp.scenario_main import run_scenario
@@ -153,9 +153,9 @@ def run_scenarios(args, networklog, **kwargs):
     # =======================
 
     if args.debug:
-        run_scenario(all_supersubscenarios[0], args=args, **kwargs)
+        run_scenario(all_supersubscenarios[0], args=args, verbose=verbose, kwargs=kwargs)
     else:
-        p = partial(run_scenario, args=args, verbose=verbose, **kwargs)
+        p = partial(run_scenario, args=args, verbose=verbose, kwargs=kwargs)
 
         # set multiprocessing parameters
         poolsize = mp.cpu_count()
