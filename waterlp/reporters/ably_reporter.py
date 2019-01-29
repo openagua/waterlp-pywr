@@ -45,7 +45,10 @@ class AblyReporter(object):
         if self.updater:
             payload = self.updater(action=action, **payload)
         if action in ['step', 'save']:
-            self.channel and self.channel.publish(action, payload)
+            if self.channel:
+                self.channel.publish(action, payload)
+            # elif self.post_reporter:
+            #     self.post_reporter.report(**payload)
         else:
             if self.post_reporter:
                 self.post_reporter.report(**payload)

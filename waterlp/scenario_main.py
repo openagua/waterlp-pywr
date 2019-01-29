@@ -9,7 +9,7 @@ current_step = 0
 total_steps = 0
 
 
-def run_scenario(supersubscenario, args=None, verbose=False, kwargs=None):
+def run_scenario(supersubscenario, args, verbose=False, **kwargs):
 
     global current_step, total_steps
 

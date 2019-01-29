@@ -88,8 +88,8 @@ def run_scenarios(args, networklog, **kwargs):
         scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
 
         start_payload = scenario.update_payload(action='start')
+        networklog.info(msg="Model started")
         if post_reporter:
-            networklog.info(msg="Model started")
             post_reporter.start(is_main_reporter=(args.message_protocol == 'post'), **start_payload)
 
         else:
@@ -146,6 +146,8 @@ def run_scenarios(args, networklog, **kwargs):
             else:
                 print(message)
 
+            networklog.info(msg=message)
+
             raise
 
     # =======================
@@ -153,9 +155,9 @@ def run_scenarios(args, networklog, **kwargs):
     # =======================
 
     if args.debug:
-        run_scenario(all_supersubscenarios[0], args=args, verbose=verbose, kwargs=kwargs)
+        run_scenario(all_supersubscenarios[0], args, verbose=verbose, **kwargs)
     else:
-        p = partial(run_scenario, args=args, verbose=verbose, kwargs=kwargs)
+        p = partial(run_scenario, args, **kwargs)
 
         # set multiprocessing parameters
         poolsize = mp.cpu_count()

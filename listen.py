@@ -59,6 +59,7 @@ def start_listening(model_key):
     else:
         connection = pika.BlockingConnection(pika.ConnectionParameters(
             host=host,
+            virtual_host=os.environ.get('RABBITMQ_VHOST', 'model-run'),
             credentials=pika.PlainCredentials(
                 username=os.environ.get('RABBITMQ_USERNAME', model_key),
                 password=os.environ.get('RABBITMQ_PASSWORD', 'password')
