@@ -592,9 +592,32 @@ class Evaluator:
         return self.get(key, **kwargs)
 
     def get(self, key, **kwargs):
-        '''
-        This is used to get data from another variable, or another time step, possibly aggregated
-        '''
+        """
+        Get data from another variable, or another time step, possibly aggregated.
+
+        Parameters
+        ----------
+        offset : int
+            The timestep offset of the value to return. For example, offset==1 returns the value from the previous
+            timestep.
+        start : str or Pendulum date object
+            This indicates that the value should be aggregated from more than one timestep, with start indicating the
+            start date of the aggregation period. The value should be either a Pendulum date object or a string that
+            Pendulum can properly parse.
+        end : str or Pendulum date object
+            If aggregating a value, the end date of the aggregation period. The value should be either a Pendulum date
+            object or a string that Pendulum can properly parse. If the end date should be the current date, this can be
+            omitted.
+        agg : str
+            If aggregating a value, this indicates how the value should be aggregated. Options include "mean" and "sum".
+            Default is "sum".
+
+        Returns
+        -------
+        int
+            Returns the value or aggregated value of the variable.
+
+        """
 
         try:
 
