@@ -155,9 +155,9 @@ def run_scenarios(args, networklog, **kwargs):
     # =======================
 
     if args.debug:
-        run_scenario(all_supersubscenarios[0], args, verbose=verbose, **kwargs)
+        run_scenario(all_supersubscenarios[0], args=args, verbose=verbose, **kwargs)
     else:
-        p = partial(run_scenario, args, **kwargs)
+        p = partial(run_scenario, args=args, verbose=verbose, **kwargs)
 
         # set multiprocessing parameters
         poolsize = mp.cpu_count()

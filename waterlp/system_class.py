@@ -93,7 +93,6 @@ class WaterSystem(object):
     def __init__(self, conn, name, network, all_scenarios, template, args, date_format='iso',
                  session=None, reporter=None, scenario=None):
 
-        self.s3 = boto3.client('s3')
         self.storage = network.layout.get('storage')
 
         # Both of these are now converted to cubic meters (per time step)
@@ -832,6 +831,7 @@ class WaterSystem(object):
 
         for filename in ['pywr_glpk_debug.lp', 'pywr_glpk_debug.mps']:
             if os.path.exists(filename):
+                s3 = boto3.client('s3')
                 with open(filename, 'r') as file:
                     content = file.read()
                     key = '{network_folder}/{log_dir}/{filename}'.format(
@@ -839,7 +839,7 @@ class WaterSystem(object):
                         log_dir=log_dir,
                         filename=filename
                     )
-                    self.s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
+                    s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
             else:
                 return None
 
