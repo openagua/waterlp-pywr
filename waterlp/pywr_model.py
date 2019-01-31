@@ -25,7 +25,7 @@ class NetworkModel(object):
     def create_model(self, network, template, solver):
         input_types = ['Inflow Node', 'Catchment', 'Misc Source']
         output_types = ['Outflow Node', 'Urban Demand', 'General Demand', 'Agricultural Demand']
-        ifr_types = ['Flow Requirement']
+        ifr_types = ['Flow Requirement', 'Hydropower']
         storage_types = ['Reservoir', 'Groundwater']
 
         model = Model(solver=solver)

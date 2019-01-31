@@ -678,8 +678,10 @@ class WaterSystem(object):
                             elif idx in self.model.storage:
                                 self.model.storage[resource_id].cost = -val
                         elif param_name == 'nodeViolationCost':  # this is a flow requirement
-                            self.model.non_storage[resource_id].cost = 0.0
+                            # self.model.non_storage[resource_id].cost = 0.0
                             self.model.non_storage[resource_id].mrf_cost = -val
+                        elif param_name == 'nodeTurbineCapacity':
+                            self.model.non_storage[resource_id].max_flow = val
                         elif param_name == 'nodeStorageDemand':
                             self.model.storage[resource_id].max_volume = val
                         # elif param_name == 'nodeStorageCapacity':
@@ -762,7 +764,13 @@ class WaterSystem(object):
                 res_id=res_id,
                 param_name='nodeOutflow',
                 timestamp=timesteps[0],
-                value=node.flow[0],
+                value=sum([input.flow[0] for input in node.inputs]),  # "input" means "input to the system"
+            )
+            self.store_results(
+                res_id=res_id,
+                param_name='nodeInflow',
+                timestamp=timesteps[0],
+                value=sum([output.flow[0] for output in node.outputs]),
             )
 
     def store_results(self, res_id=None, param_name=None, timestamp=None, value=None):
@@ -971,8 +979,12 @@ class WaterSystem(object):
             # upload the last remaining resource scenarios
             result_scenario['resourcescenarios'] = res_scens
             resp = self.conn.dump_results(result_scenario)
+
             if self.scenario.reporter:
-                self.scenario.reporter.report(action='save', saved=round(n / N * 100))
+                if N:
+                    self.scenario.reporter.report(action='save', saved=round(n / N * 100))
+                else:
+                    self.scenario.reporter.report(action='error', message="ERROR: No results have been reported. The model might not have run.")
 
         except:
             msg = 'ERROR: Results could not be saved.'
