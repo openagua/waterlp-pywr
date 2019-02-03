@@ -154,7 +154,7 @@ class NetworkModel(object):
         )
 
     def run(self):
-        self.model.run()
+        return self.model.run()
 
     # def init_params(self, params, variables, block_params):
     #
