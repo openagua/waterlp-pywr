@@ -57,6 +57,10 @@ def get_scenario_data(evaluator, **kwargs):
     kwargs['scenario_id'] = [evaluator.scenario_id]
     res_attr_data = evaluator.conn.get_res_attr_data(**kwargs)
 
+    # if type(res_attr_data) == list:
+    #     data_type = kwargs.get('data_type')
+    #     res_attr_data = [value for value in res_attr_data if value.value.type == data_type]
+
     if res_attr_data and 'errorcode' not in res_attr_data:
         res_attr_data = res_attr_data[0]
         # evaluate the data
@@ -64,6 +68,7 @@ def get_scenario_data(evaluator, **kwargs):
 
         eval_value = evaluator.eval_data(
             value=res_attr_data.value,
+            data_type=kwargs.get('data_type'),
             do_eval=False,
             date_format=evaluator.date_format
         )
@@ -164,13 +169,19 @@ def eval_timeseries(timeseries, dates, fill_value=None, flatten=False, has_block
             elif method:
                 df.fillna(method=method)
 
-        if flavor == 'json':
+        result = None
+        if flatten:
+            df = df.sum(axis=1)
+
+        if flavor == 'pandas':
+            result = df
+        elif flavor == 'dict':
+            df.index = df.index.strftime(date_format)
+            result = df.to_dict()
+        elif flavor == 'json':
             result = df.to_json(date_format=date_format)
         else:
-            df.index = df.index.strftime(date_format)
-            if flatten:
-                df = df.sum(axis=1)
-            result = df.to_dict()
+            result = None
 
         returncode = 0
         errormsg = 'No errors!'
@@ -200,15 +211,12 @@ def eval_array(array, flavor=None):
     return returncode, errormsg, result
 
 
-def parse_function(s, name, argnames):
+def parse_function(s, name, argnames, modules=()):
     '''Parse a function into usable Python'''
     spaces = '\n    '
 
     # modules
-    # modules = spaces.join('import {}'.format(m) for m in modules)
-
-    # functions
-    # functions = spaces.join(['{func} = self.{func}'.format(func=f) for f in functions])
+    modules = spaces.join('import {}'.format(m) for m in modules)
 
     # getargs (these pass to self.GET)
     kwargs = spaces.join(['{arg} = kwargs.get("{arg}")'.format(arg=arg) for arg in argnames])
@@ -221,8 +229,8 @@ def parse_function(s, name, argnames):
     code = spaces.join(lines)
 
     # final function
-    func = '''def {name}(self, **kwargs):{spaces}{kwargs}{spaces}{spaces}{code}''' \
-        .format(spaces=spaces, kwargs=kwargs, code=code, name=name)
+    func = '''def {name}(self, **kwargs):{spaces}{modules}{spaces}{kwargs}{spaces}{code}''' \
+        .format(spaces=spaces, modules=modules, kwargs=kwargs, code=code, name=name)
 
     return func
 
@@ -248,7 +256,7 @@ def make_dates(settings, date_format=True, data_type='timeseries'):
 
         periodic_timesteps = []
         if timestep == 'day':
-            dates = period.range("days")
+            dates = list(period.range("days"))
             pt = 0
             for i, date in enumerate(dates):
                 if (date.month, date.day) == (start_date.month, start_date.day):
@@ -271,7 +279,7 @@ def make_dates(settings, date_format=True, data_type='timeseries'):
                 dates.append(date)
                 periodic_timesteps.append(i % 52 + 1)
         elif timestep == 'month':
-            dates = period.range("months")
+            dates = list(period.range("months"))
             periodic_timesteps = [i % 12 + 1 for i, date in enumerate(dates)]
         elif timestep == 'thricemonthly':
             dates = []
@@ -288,6 +296,7 @@ def make_dates(settings, date_format=True, data_type='timeseries'):
 
     else:
         return None, None, None
+
 
 def make_default_value(data_type='timeseries', dates=None, nblocks=1, flavor='json', date_format='iso'):
     if data_type == 'timeseries':
@@ -326,7 +335,7 @@ class namespace:
 
 
 class Evaluator:
-    def __init__(self, conn=None, scenario_id=None, settings=None, date_format='iso', data_type='timeseries', nblocks=1):
+    def __init__(self, conn=None, scenario_id=None, settings=None, date_format='iso', data_type='timeseries'):
         self.conn = conn
         self.dates_as_string, self.dates, self.periodic_timesteps = make_dates(settings, data_type=data_type)
         self.start_date = self.dates[0]
@@ -373,13 +382,12 @@ class Evaluator:
                   date_format='iso', has_blocks=False, data_type=None, parentkey=None):
 
         try:
-            # create the data depending on data type
 
+            # create the data depending on data type
             returncode = None
             errormsg = None
             result = None
 
-            # metadata = json.loads(resource_scenario.value.metadata)
             metadata = json.loads(value.get('metadata', '{}'))
             if func is None:
                 func = metadata.get('function')
@@ -537,6 +545,7 @@ class Evaluator:
                     break
 
             values = self.hashstore[hashkey][tsi:]
+
             if data_type in ['timeseries', 'periodic timeseries']:
                 dates_idx = self.dates_as_string[tsi:tsf]
                 if type(values[0]) in (list, tuple):
@@ -556,7 +565,7 @@ class Evaluator:
                         result = pandas.DataFrame(data=values, index=dates_idx).to_json(date_format='iso')
                     elif flavor == 'pandas':
                         result = pandas.DataFrame(data=values, index=dates_idx)
-                    else:
+                    elif flavor == 'dict':
                         result = self.store.get(parentkey, {})
                         if has_blocks and not flatten:
                             vals = {d: v for d, v in zip(dates_idx, values)}
@@ -696,6 +705,7 @@ class Evaluator:
                     #     self.store[key] = {}
 
                     if start:
+
                         if type(start) == str:
                             start = pendulum.parse(start)
                         if type(end) == str:
@@ -761,7 +771,8 @@ class Evaluator:
             return result
 
         except:
-            raise
+            res_info = key
+            raise Exception("Error getting data for key {}".format(res_info))
 
     def read_csv(self, path, **kwargs):
 

@@ -98,17 +98,37 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         )
 
         try:
+
+            # 1. UPDATE INITIAL CONDITIONS
+            # TODO: delete this once the irregular time step routine of Pywr is implemented
+
             system.update_initial_conditions(
                 variables=system.variables,
                 initialize=i == 0
             )
+
+            # 2. UPDATE BOUNDARY CONDITIONS
+
             # system.update_boundary_conditions(ts, ts + system.foresight_periods, 'intermediary')
             # system.update_boundary_conditions(ts, ts + system.foresight_periods, 'model')
-            system.update_boundary_conditions(ts, ts + system.foresight_periods)
-            system.model.run()
+
+            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='pre-process')
+            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='main')
+
+            # 3. RUN THE MODEL ONE TIME STEP
+            results = system.model.run()
+            if i == 0 and results:
+                stats = results.to_dataframe()
+                content = stats.to_csv()
+                system.save_to_file('stats.csv', content)
+
+            # 4. COLLECT RESULTS
             system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
 
-            # REPORT PROGRESS
+            # 5. CALCULATE POST-PROCESSED RESULTS
+            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='post-process')
+
+            # 6. REPORT PROGRESS
             system.scenario.finished += 1
             system.scenario.current_date = current_dates_as_string[0]
 

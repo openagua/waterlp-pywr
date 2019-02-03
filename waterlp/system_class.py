@@ -7,7 +7,7 @@ import boto3
 from datetime import datetime as dt
 
 from waterlp.evaluator import Evaluator
-from waterlp.converter import convert
+from waterlp.utils.converter import convert
 
 
 def convert_type_name(n):
@@ -134,6 +134,8 @@ class WaterSystem(object):
         self.params = {}  # to be defined later
         self.nparams = 0
         self.nvars = 0
+
+        self.log_dir = 'log/{run_name}'.format(run_name=self.args.run_name)
 
         ttypeattrs = {}
         rtypeattrs = {'node': {}, 'link': {}, 'network': {}}
@@ -386,6 +388,7 @@ class WaterSystem(object):
                                 fill_value=0,
                                 has_blocks=has_blocks,
                                 date_format=self.date_format,
+                                flavor='dict',
                                 parentkey=parentkey
                             )
                     except:
@@ -574,14 +577,15 @@ class WaterSystem(object):
                         }
 
     def update_param(self, idx, param_name, dates_as_string, values=None, is_function=False, func=None,
-                     has_blocks=False, scope='model'):
+                     has_blocks=False, step='main'):
 
         try:
             param = self.params[param_name]
-            # intermediary = param['intermediary']
+            intermediary = param['intermediary']
 
-            # if scope == 'model' and intermediary or scope == 'intermediary' and not intermediary:
-            #     return
+            # if step == 'model' and scope in['pre-process' or scope == 'intermediary' and not intermediary:
+            if step == 'main' and intermediary or step in ['pre-process', 'post-process'] and not intermediary:
+                return
 
             dimension = param['dimension']
             data_type = param['data_type']
@@ -608,7 +612,8 @@ class WaterSystem(object):
                         has_blocks=has_blocks,
                         flatten=not has_blocks,
                         data_type=data_type,
-                        parentkey=parentkey
+                        parentkey=parentkey,
+                        flavor='dict',
                     )
                     if errormsg:
                         raise Exception(errormsg)
@@ -713,7 +718,7 @@ class WaterSystem(object):
 
         return
 
-    def update_boundary_conditions(self, tsi, tsf, scope='model'):
+    def update_boundary_conditions(self, tsi, tsf, step='main'):
         """
         Update boundary conditions.
         """
@@ -732,7 +737,7 @@ class WaterSystem(object):
                     is_function=p.get('is_function'),
                     func=p.get('function'),
                     has_blocks=has_blocks,
-                    scope=scope,
+                    step=step,
                 )
 
     def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
@@ -835,23 +840,24 @@ class WaterSystem(object):
 
     def save_logs(self):
 
-        log_dir = 'log/{run_name}'.format(run_name=self.args.run_name)
-
         for filename in ['pywr_glpk_debug.lp', 'pywr_glpk_debug.mps']:
             if os.path.exists(filename):
-                s3 = boto3.client('s3')
                 with open(filename, 'r') as file:
                     content = file.read()
-                    key = '{network_folder}/{log_dir}/{filename}'.format(
-                        network_folder=self.storage.folder,
-                        log_dir=log_dir,
-                        filename=filename
-                    )
-                    s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
+                    self.save_to_file(filename, content)
             else:
                 return None
 
-        return log_dir
+        return True
+
+    def save_to_file(self, filename, content):
+        s3 = boto3.client('s3')
+        key = '{network_folder}/{log_dir}/{filename}'.format(
+            network_folder=self.storage.folder,
+            log_dir=self.log_dir,
+            filename=filename
+        )
+        s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
 
     def save_results(self, error=False):
 

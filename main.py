@@ -18,7 +18,7 @@ from waterlp.system_class import WaterSystem
 from waterlp.scenario_class import Scenario
 from waterlp.reporters.post_reporter import Reporter as PostReporter
 from waterlp.logger import create_logger
-from waterlp.utils import create_subscenarios
+from waterlp.utils.scenarios import create_subscenarios
 from waterlp.scenario_main import run_scenario
 
 
