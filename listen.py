@@ -2,79 +2,88 @@
 import json
 import getpass
 from shutil import rmtree
-import pika
+from kombu import Connection, Exchange, Queue
+from kombu.mixins import ConsumerMixin
 import os
 from main import commandline_parser, run_model
 
 from waterlp.logger import RunLogger
 
 
-def callback(ch, method, properties, body):
-    message = json.loads(body)
-    env = message.get('env', {})
-    args = message.get('args')
-    kwargs = message.get('kwargs')
+class Worker(ConsumerMixin):
 
-    app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
-    logs_dir = '{}/logs'.format(app_dir)
+    def __init__(self, connection, queues):
+        self.connection = connection
+        self.queues = queues
 
-    # if os.path.exists(app_dir):
-    #     rmtree(app_dir)
-    # os.makedirs(logs_dir)
+    def get_consumers(self, Consumer, channel):
+        return [Consumer(queues=self.queues,
+                         callbacks=[self.process_task])]
 
-    for key, value in env.items():
-        os.environ[key] = value
-    print(" [x] Running model with %r" % args)
+    def process_task(self, body, message):
 
-    parser = commandline_parser()
-    args, unknown = parser.parse_known_args(args)
+        body = json.loads(body)
+        env = body.get('env', {})
+        args = body.get('args')
+        kwargs = body.get('kwargs')
 
-    RunLog = RunLogger(name='waterlp', app_name=args.app_name, run_name=args.run_name, logs_dir=logs_dir,
-                       username=args.hydra_username)
+        app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
+        logs_dir = '{}/logs'.format(app_dir)
 
-    try:
-        RunLog.log_start()
-        run_model(args, logs_dir, **kwargs)
-        RunLog.log_finish()
-    except Exception as err:
-        RunLog.log_error(message=str(err))
+        for key, value in env.items():
+            os.environ[key] = value
+        print(" [x] Running model with %r" % args)
+
+        parser = commandline_parser()
+        args, unknown = parser.parse_known_args(args)
+
+        RunLog = RunLogger(name='waterlp', app_name=args.app_name, run_name=args.run_name, logs_dir=logs_dir,
+                           username=args.hydra_username)
+
+        try:
+            RunLog.log_start()
+            run_model(args, logs_dir, **kwargs)
+            RunLog.log_finish()
+        except Exception as err:
+            RunLog.log_error(message=str(err))
+
+        message.ack()
 
 
-def start_listening(model_key):
+if __name__ == '__main__':
 
-    # set up logging
+    hostname = os.environ.get('RABBITMQ_HOST', 'localhost')
+    model_key = os.environ.get('MODEL_KEY')
+    run_key = os.environ.get('RUN_KEY')
+    vhost = os.environ.get('RABBITMQ_VHOST', 'model-run')
+    userid = os.environ.get('RABBITMQ_USERNAME', model_key)
+    password = os.environ.get('RABBITMQ_PASSWORD', 'password')
+
+    exchange_name = os.environ.get('RABBITMQ_EXCHANGE', 'amq')
+
     app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
     logs_dir = '{}/logs'.format(app_dir)
     if os.path.exists(app_dir):
         rmtree(app_dir)
     os.makedirs(logs_dir)
 
-    queue_name = 'model-{}'.format(model_key)
-    run_key = os.environ.get('RUN_KEY')
-    if run_key:
-        queue_name += '-{}'.format(run_key)
-    host = os.environ.get('RABBITMQ_HOST', 'localhost')
-    if host == 'localhost':
-        connection = pika.BlockingConnection(pika.ConnectionParameters(host=host))
-    else:
-        connection = pika.BlockingConnection(pika.ConnectionParameters(
-            host=host,
-            virtual_host=os.environ.get('RABBITMQ_VHOST', 'model-run'),
-            credentials=pika.PlainCredentials(
-                username=os.environ.get('RABBITMQ_USERNAME', model_key),
-                password=os.environ.get('RABBITMQ_PASSWORD', 'password')
-            )
-        ))
-    channel = connection.channel()
-    channel.queue_declare(queue=queue_name)
-    channel.basic_consume(callback, queue=queue_name, no_ack=True)
-    print(' [*] Waiting for messages. To exit press CTRL+C')
-    channel.start_consuming()
+    with Connection(hostname=hostname, virtual_host=vhost, userid=userid, password=password) as conn:
+        try:
 
+            # EXCHANGE
+            exchange = Exchange(exchange_name, type='direct')
 
-if __name__ == '__main__':
-    try:
-        model_key = os.environ['MODEL_KEY']
-        start_listening(model_key)
-    except:
-        raise
+            # QUEUE
+            queue_name = 'model-{}'.format(model_key)
+            if run_key:
+                queue_name += '-{}'.format(run_key)
+
+            queue = Queue(name=queue_name, exchange=exchange, durable=False)
+
+            worker = Worker(conn, [queue])
+
+            print(' [*] Waiting for messages. To exit press CTRL+C')
+
+            worker.run()
+        except KeyboardInterrupt:
+            print('bye bye')
