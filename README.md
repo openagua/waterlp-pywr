@@ -69,10 +69,21 @@ To stop and remove this container (for example to update the docker image):
 sudo docker rm --force waterlp
 ```
 
-These can be brought together into a single set of commands to start/update the container (these could be put into a bash script):
+These can be brought together into a single set of commands to start/update the container, such as in a bash script.
+
+Since updating images in this way results in an accumulation of unused images, it can be useful to remove old images. This is achieved with the following command:
+```bash
+sudo docker image prune --all --force
+```
+where `--all` removes all unused images and `--force` does not prompt for user confirmation (this is optional if running this command manually). See [docker image prune](https://docs.docker.com/engine/reference/commandline/image_prune/).
+
+These can be brought together in a bash script, as follows:
 
 ```bash
 sudo docker pull openagua/waterlp-pywr
 sudo docker rm --force waterlp
 sudo docker run -d --env-file ./env.list --volume /home/ubuntu:/home/root --volume /etc/localtime:/etc/localtime  --name waterlp openagua/waterlp-pywr
+sudo docker image prune --all --force
 ```
+
+This is included in `run_docker_image.sh` in the `scripts` folder (without `sudo`).

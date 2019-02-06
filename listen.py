@@ -9,6 +9,8 @@ from main import commandline_parser, run_model
 
 from waterlp.logger import RunLogger
 
+# This code is derived from
+# https://medium.com/python-pandemonium/building-robust-rabbitmq-consumers-with-python-and-kombu-part-2-e9505f56e12e
 
 class Worker(ConsumerMixin):
 
