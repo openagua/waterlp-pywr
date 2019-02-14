@@ -6,7 +6,7 @@ import pandas as pd
 import boto3
 from datetime import datetime as dt
 
-from waterlp.evaluator import Evaluator
+from waterlp.models.evaluator import Evaluator
 from waterlp.utils.converter import convert
 
 

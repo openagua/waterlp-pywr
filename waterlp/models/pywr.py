@@ -5,6 +5,14 @@ from pywr.parameters import (ArrayIndexedParameter, DataFrameParameter, Constant
 from pywr.recorders import (NumpyArrayNodeRecorder, NumpyArrayStorageRecorder)
 
 
+class Hydropower(RiverGauge):
+    pass
+
+
+class FlowRequirement(RiverGauge):
+    pass
+
+
 # create the model
 class NetworkModel(object):
     def __init__(self, network, template, solver='glpk', check_graph=False):
@@ -25,8 +33,12 @@ class NetworkModel(object):
     def create_model(self, network, template, solver):
         input_types = ['Inflow Node', 'Catchment', 'Misc Source']
         output_types = ['Outflow Node', 'Urban Demand', 'General Demand', 'Agricultural Demand']
-        ifr_types = ['Flow Requirement', 'Hydropower']
         storage_types = ['Reservoir', 'Groundwater']
+
+        nonStorageNodeMap = {
+            'Hydropower': Hydropower,
+            'Flow Requirement': FlowRequirement,
+        }
 
         model = Model(solver=solver)
 
@@ -106,8 +118,8 @@ class NetworkModel(object):
                 self.non_storage[node_id] = Output(model, name=name)
             elif node_type in input_types:
                 self.non_storage[node_id] = Input(model, name=name)
-            elif node_type in ifr_types:
-                self.non_storage[node_id] = RiverGauge(model, name=name)
+            elif node_type in nonStorageNodeMap:
+                self.non_storage[node_id] = nonStorageNodeMap[node_type](model, name=name)
             else:
                 self.non_storage[node_id] = Link(model, name=name)
 

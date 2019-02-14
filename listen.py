@@ -24,6 +24,8 @@ class Worker(ConsumerMixin):
 
     def process_task(self, body, message):
 
+        message.ack()
+
         body = json.loads(body)
         env = body.get('env', {})
         args = body.get('args')
@@ -48,8 +50,6 @@ class Worker(ConsumerMixin):
             RunLog.log_finish()
         except Exception as err:
             RunLog.log_error(message=str(err))
-
-        message.ack()
 
 
 if __name__ == '__main__':

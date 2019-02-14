@@ -14,7 +14,7 @@ from itertools import product
 from copy import copy
 
 from waterlp.connection import connection
-from waterlp.system_class import WaterSystem
+from waterlp.models.system import WaterSystem
 from waterlp.scenario_class import Scenario
 from waterlp.reporters.post_reporter import Reporter as PostReporter
 from waterlp.logger import create_logger

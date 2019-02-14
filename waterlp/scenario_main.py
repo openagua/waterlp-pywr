@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from waterlp.pywr_model import NetworkModel
+from waterlp.models.pywr import NetworkModel
 from waterlp.reporters.post_reporter import Reporter as PostReporter
 from waterlp.reporters.ably_reporter import AblyReporter
 from waterlp.screen_reporter import ScreenReporter
