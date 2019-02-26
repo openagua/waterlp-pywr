@@ -106,7 +106,10 @@ def run_scenarios(args, networklog, **kwargs):
             system = copy(base_system)
             system.scenario = scenario
             system.initialize_time_steps()
-            system.collect_source_data()
+            try:
+                system.collect_source_data()
+            except:
+                pass
 
             # organize the subscenarios
             flattened = product(option_subscenarios, scenario_subscenarios)

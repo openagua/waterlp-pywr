@@ -36,13 +36,14 @@ numpy==1.16.0
 packaging==18.0
 pandas==0.23.4
 pendulum==2.0.3
+pika==0.13.0
 ply==3.10
 pyparsing==2.3.0
 python-dateutil==2.6.1
 pytz==2017.3
 pytzdata==2018.5
 PyUtilib==5.6
-pywr==1.0.0
+pywr==1.1.0
 PyYAML==3.13
 redis==3.0.1
 requests==2.21.0

@@ -43,12 +43,10 @@ class Scenario(object):
         self.unique_id = args.unique_id + '-' + '-'.join(str(s_id) for s_id in scenario_ids)
 
         for i, base_id in enumerate(scenario_ids):
+            # if i and source.id in self.source_ids:
+            # continue # this is a baseline scenario; already accounted for
 
             source = [s for s in network.scenarios if s.id == base_id][0]
-
-            if i and source.id in self.source_ids:
-                continue # this is a baseline scenario; already accounted for
-
             self.base_scenarios.append(source)
             self.source_scenarios[base_id] = source
 
@@ -71,6 +69,9 @@ class Scenario(object):
                 self.time_step = source.get('time_step')
 
             this_chain.reverse()
+
+            if i:
+                this_chain = this_chain[1:]
 
             self.source_ids.extend(this_chain)  # include baseline
 
