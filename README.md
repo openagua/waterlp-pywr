@@ -55,7 +55,7 @@ In general, the logfile will be stored in the user's home directory, under `~/.w
 
 Dates--in particular Pendulum--need to know the machine time zone information. This is achieved with `--volume /etc/localtime:/etc/localtime`, assuming the host machine is Ubuntu. If not, further investigation is needed to pass this info.
 
-### Example:
+### Example: Linux (Ubuntu)
 
 In this example, variables will be stored in a file called `env.list`, and log files will be stored in `/log/waterlp` on the host machine. The container will be named `waterlp`, so we can delete it easily, and will be run in "detached" mode using the `-d` flag. 
 
@@ -87,3 +87,14 @@ sudo docker image prune --all --force
 ```
 
 This is included in `run_docker_image.sh` in the `scripts` folder (without `sudo`).
+
+### Example: Windows
+
+A similar example can be developed for Windows. First, please make sure to [turn on the appropriate shared drive](https://docs.docker.com/docker-for-windows/#shared-drives).
+
+```
+docker pull openagua/waterlp-pywr:latest
+docker rm --force waterlp
+docker run -d --env-file //Users/david/Documents/waterlp/env.txt --volume /home/ubuntu://Users/david/Documents/waterlp --name waterlp openagua/waterlp-pywr
+docker image prune --all --force
+```
