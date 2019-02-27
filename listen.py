@@ -22,12 +22,10 @@ class Worker(ConsumerMixin):
     def get_consumers(self, Consumer, channel):
         return [Consumer(queues=self.queues,
                          prefetch_count=0,
-                         no_ack=False,
+                         # no_ack=True,
                          callbacks=[self.process_task])]
 
     def process_task(self, body, message):
-
-        message.ack()
 
         env = body.get('env', {})
         args = body.get('args')
@@ -53,7 +51,7 @@ class Worker(ConsumerMixin):
         except Exception as err:
             RunLog.log_error(message=str(err))
 
-        # message.ack()
+        message.ack()
 
 
 if __name__ == '__main__':

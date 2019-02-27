@@ -6,6 +6,8 @@ from attrdict import AttrDict
 import pandas as pd
 import boto3
 from datetime import datetime as dt
+from time import mktime
+import pendulum
 
 from waterlp.models.pywr import PywrModel
 from waterlp.models.evaluator import Evaluator
@@ -940,7 +942,8 @@ class WaterSystem(object):
 
         # self.conn.call('purge_scenario', {'scenario_id': result_scenario.id})
         # TODO: double check this routine. The result scenario should be re-used, so that any favorite can refer to the same scenario ID
-        mod_date = dt.now().isoformat()
+        # mod_date = mktime(dt.utcnow().timetuple())
+        mod_date = pendulum.now().to_iso8601_string()
         if not result_scenario or result_scenario.id in self.scenario.source_ids:
             result_scenario = self.conn.call('add_scenario',
                                              {'network_id': self.network.id, 'scen': {
@@ -966,6 +969,8 @@ class WaterSystem(object):
             result = self.conn.call('update_scenario', {
                 'scen': result_scenario,
             })
+
+        self.scenario.scenario_id = result_scenario['id']
 
         # save variable data to database
         res_scens = []
@@ -1057,6 +1062,8 @@ class WaterSystem(object):
             # upload the last remaining resource scenarios
             result_scenario['resourcescenarios'] = res_scens
             resp = self.conn.dump_results(result_scenario)
+
+            self.scenario.result_scenario_id = result_scenario['id']
 
             if self.scenario.reporter:
                 if N:

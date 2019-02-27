@@ -21,6 +21,7 @@ class Scenario(object):
         self.total_steps = 1
         self.finished = 0
         self.current_date = None
+        self.scenario_id = None # result scenario ID
 
         # self.start_time = '0'
         # self.end_time = '9'
@@ -106,6 +107,7 @@ class Scenario(object):
             'network_id': self.network_id,
             'scids': self.scenario_ids,
             # 'scenario_name': self.name,
+            'scenario_id': self.scenario_id,
             'status': 'unknown'
         })
         if action:
