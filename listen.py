@@ -27,6 +27,8 @@ class Worker(ConsumerMixin):
 
     def process_task(self, body, message):
 
+        message.ack()
+
         env = body.get('env', {})
         args = body.get('args')
         kwargs = body.get('kwargs')
@@ -51,7 +53,7 @@ class Worker(ConsumerMixin):
         except Exception as err:
             RunLog.log_error(message=str(err))
 
-        message.ack()
+        # message.ack()
 
 
 if __name__ == '__main__':
