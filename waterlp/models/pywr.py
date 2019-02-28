@@ -6,25 +6,23 @@ from pywr.core import Model, Input, Output, Link, River, Storage, RiverGauge, Ca
 # from pywr.parameters import (ArrayIndexedParameter, DataFrameParameter, ConstantParameter)
 # from pywr.recorders import (NumpyArrayNodeRecorder, NumpyArrayStorageRecorder)
 
-# class FlowRequirement(RiverGauge):
-#     def __init__(self, *args, **kwargs):
-#         self.allow_isolated = False
-#
-#         super(FlowRequirement, self).__init__(*args, **kwargs)
-#
-#     @classmethod
-#     def load(cls, data, model):
-#         del (data["type"])
-#         return cls(model, **data)
-
-
-storage_types = ['Reservoir', 'Groundwater']
-output_types = ['Outflow Node', 'Urban Demand', 'General Demand', 'Agricultural Demand']
-
-node_types = {
+storage_types = {
+    'Reservoir': Storage,
+    'Groundwater': Storage,
+    'Diversion Reservoir': Storage,
+}
+output_types = {
+    'Outflow Node': Output,
+    'Urban Demand': Output,
+    'General Demand': Output,
+    'Agricultural Demand': Output,
+}
+input_types = {
     'Inflow Node': Catchment,
     'Misc Source': Input,
     'Catchment': Catchment,
+}
+node_types = {
     'Hydropower': RiverGauge,
     'Flow Requirement': RiverGauge,
 }
@@ -60,6 +58,7 @@ class PywrModel(object):
         # -----------------GENERATE NETWORK STRUCTURE -----------------------
 
         output_ids = []
+        input_ids = []
 
         # create node dictionaries by name and id
         node_lookup = {}
@@ -80,6 +79,8 @@ class PywrModel(object):
             }
             if type_name in output_types:
                 output_ids.append(node['id'])
+            elif type_name in input_types:
+                input_ids.append(node['id'])
 
         # create link lookups and pywr links
         link_lookup = {}
@@ -107,8 +108,13 @@ class PywrModel(object):
                 node = node_lookup[node_1_id]
                 msg = 'Topology error: Output {} appears to be upstream of {}'.format(node['name'], name)
                 raise Exception(msg)
+            elif node_2_id in input_ids:
+                node = node_lookup[node_2_id]
+                msg = 'Topology error: Input {} appears to be downstream of {}'.format(node['name'], name)
+                raise Exception(msg)
 
-            self.non_storage[('link', link_id)] = link_types.get(type_name, Link)(model, name=name)
+            LinkType = link_types.get(type_name, Link)
+            self.non_storage[('link', link_id)] = LinkType(model, name=name)
 
         # Q/C
 
@@ -140,18 +146,33 @@ class PywrModel(object):
         for node_id, node in node_lookup.items():
             type_name = node['type']
             name = node['name']
-            if type_name in storage_types:
-                num_outputs = node.get('connect_in', 0)
-                num_inputs = node.get('connect_out', 0)
+            connect_in = node.get('connect_in', 0)
+            connect_out = node.get('connect_out', 0)
+            if type_name in storage_types or connect_out > 1:
                 initial_volume = initial_volumes.get(node_id, 0.0) if initial_volumes is not None else 0.0
-                self.storage[node_id] = Storage(model, name=name, num_outputs=num_outputs, num_inputs=num_inputs,
-                                                initial_volume=initial_volume)
+                self.storage[node_id] = Storage(
+                    model,
+                    name=name,
+                    num_outputs=connect_in,
+                    num_inputs=connect_out,
+                    initial_volume=initial_volume
+                )
+                if type_name not in storage_types or type_name == 'Diversion Reservoir':
+                    self.storage[node_id].max_volume = 0.0
             else:
-                if type_name in output_types:
-                    node_type = Output(model, name=name)
+
+                if type_name in input_types:
+                    NodeType = input_types[type_name]
+                elif type_name in output_types:
+                    NodeType = output_types[type_name]
+                elif type_name in node_types:
+                    NodeType = node_types[type_name]
+                elif connect_in > 1:
+                    NodeType = River
                 else:
-                    node_type = node_types.get(type_name, Link)(model, name=name)
-                self.non_storage[('node', node_id)] = node_type
+                    NodeType = Link
+
+                self.non_storage[('node', node_id)] = NodeType(model, name=name)
 
         # create network connections
         # must assign connection slots for storage
@@ -219,7 +240,7 @@ class PywrModel(object):
         elif param_name == 'nodeTurbineCapacity':
             if idx in self.non_storage:
                 self.non_storage[idx].max_flow = value
-            elif idx in self.storage: # TODO: add hydropower to reservoirs?
+            elif idx in self.storage:  # TODO: add hydropower to reservoirs?
                 # self.storage[idx].max_flow = value
                 pass
         elif param_name == 'nodeStorageDemand':
