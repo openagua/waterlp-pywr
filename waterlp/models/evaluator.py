@@ -24,6 +24,7 @@ def get_scenarios_data(conn, scenario_ids, **kwargs):
         settings=kwargs.get('settings'),
         data_type=kwargs.get('data_type'),
         nblocks=kwargs.get('nblocks'),
+        date_format='%Y-%m-%d %H:%M:%S',
     )
 
     scenarios_data = []
@@ -52,7 +53,7 @@ def get_scenarios_data(conn, scenario_ids, **kwargs):
 def get_scenario_data(evaluator, **kwargs):
     kwargs['scenario_id'] = [evaluator.scenario_id]
     res_attr_data = evaluator.conn.get_res_attr_data(**kwargs)
-
+    eval_value = None
     if res_attr_data and 'errorcode' not in res_attr_data:
         res_attr_data = res_attr_data[0]
 
@@ -62,14 +63,17 @@ def get_scenario_data(evaluator, **kwargs):
             kwargs.get('attr_id')
         )
 
-        eval_value = evaluator.eval_data(
-            parentkey=parentkey,
-            value=res_attr_data.value,
-            data_type=kwargs.get('data_type'),
-            flatten=False,
-            do_eval=False,
-        )
-        if not eval_value:
+        try:
+            eval_value = evaluator.eval_data(
+                parentkey=parentkey,
+                value=res_attr_data.value,
+                data_type=kwargs.get('data_type'),
+                flatten=False,
+                do_eval=False,
+            )
+        except:
+            eval_value = None
+        if eval_value is None:
             if evaluator.data_type:
                 eval_value = evaluator.default_timeseries
             else:
@@ -201,6 +205,7 @@ def eval_array(array, flavor=None):
         errormsg = 'Something is wrong.'
         raise Exception(errormsg)
 
+
 def parse_function(s, name, argnames, modules=()):
     '''Parse a function into usable Python'''
     spaces = '\n    '
@@ -323,9 +328,11 @@ class namespace:
 
 
 class Evaluator:
-    def __init__(self, conn=None, scenario_id=None, settings=None, data_type='timeseries', nblocks=1, date_format=None):
+    def __init__(self, conn=None, scenario_id=None, settings=None, data_type='timeseries', nblocks=1,
+                 date_format='%Y-%m-%d %H:%M:%S'):
         self.conn = conn
         self.dates_as_string, self.dates, self.periodic_timesteps = make_dates(settings, data_type=data_type)
+        self.date_format = date_format
         self.start_date = self.dates[0]
         self.end_date = self.dates[-1]
         self.scenario_id = scenario_id
@@ -334,7 +341,6 @@ class Evaluator:
         self.default_array = make_default_value('array')
         self.resource_scenarios = {}
         self.external = {}
-        self.date_format = date_format
 
         self.network_files_path = settings.get('network_files_path')
 
@@ -365,7 +371,7 @@ class Evaluator:
         self.hashstore = {}
 
     def eval_data(self, value, func=None, do_eval=False, flavor=None, depth=0, flatten=False, fill_value=None,
-                  tsidx=None, date_format='iso', has_blocks=False, data_type=None, parentkey=None):
+                  tsidx=None, date_format=None, has_blocks=False, data_type=None, parentkey=None):
         """
         Evaluate the data and return the appropriate value
 
@@ -386,6 +392,7 @@ class Evaluator:
         returncode = None
         errormsg = None
         result = None
+        date_format = date_format or self.date_format
 
         try:
 
@@ -410,10 +417,11 @@ class Evaluator:
                         flatten=flatten,
                         date_format=date_format
                     )
-                except InnerSyntaxError:
+                except InnerSyntaxError as err:
+                    print(err)
                     raise
-                except Exception as e:
-                    print(e)
+                except Exception as err:
+                    print(err)
                     raise
                 if result is None and data_type == 'timeseries':
                     result = self.default_timeseries
@@ -443,7 +451,7 @@ class Evaluator:
                         flatten=(flatten if flatten is not None else not has_blocks),
                         date_format=date_format,
                         fill_value=fill_value,
-                        flavor=flavor
+                        flavor=flavor,
                     )
                 except:
                     raise
@@ -463,7 +471,7 @@ class Evaluator:
             raise
 
     def eval_function(self, code_string, depth=0, parentkey=None, flavor=None, data_type=None, flatten=False,
-                      date_format=None, tsidx=None, has_blocks=False, evaluate=False):
+                      tsidx=None, has_blocks=False, date_format=None):
 
         """
         This function is tricky. Basically, it should 1) return data in a format consistent with data_type
@@ -481,9 +489,8 @@ class Evaluator:
         :return:
         """
 
-        # assume there will be an exception:
         result = None
-
+        date_format = date_format or self.date_format
         hashkey = hashlib.sha224(str.encode(code_string + str(data_type))).hexdigest()
 
         # check if we already know about this function so we don't
@@ -503,25 +510,28 @@ class Evaluator:
                 line_number = err.lineno
                 raise
             except Exception as e:
+                print(e)
                 raise
 
         try:
             # CORE EVALUATION ROUTINE
 
-            if hashkey in self.hashstore:
+            stored_value = self.hashstore.get(hashkey)
+
+            if stored_value is not None:
                 if data_type != 'timeseries':
                     return self.hashstore[hashkey]
 
             # get dates to be evaluated
             if tsidx:
-                dates = self.dates[tsidx:tsidx+1]
+                dates = self.dates[tsidx:tsidx + 1]
             else:
                 tsi = getattr(self, 'tsi', None)
                 tsf = getattr(self, 'tsf', None)
                 if tsi is not None and tsf is not None:
-                    dates = self.dates[tsi:tsf] # used when running model
+                    dates = self.dates[tsi:tsf]  # used when running model
                 else:
-                    dates = self.dates # used when evaluating a function in app
+                    dates = self.dates  # used when evaluating a function in app
 
             for ts, date in enumerate(dates):
                 date_as_string = date.to_datetime_string()
@@ -546,11 +556,14 @@ class Evaluator:
                         self.hashstore[hashkey] = {}
                     if type(value) == dict and date_as_string in value:
                         self.hashstore[hashkey][date_as_string] = value.get(date_as_string)
-                    elif type(value) == pandas.DataFrame:
-                        if type(value.index[0]) != str:
+                    elif type(value) in [pandas.DataFrame, pandas.Series]:
+                        # TODO: add to documentation that returning a dataframe or series from a function
+                        # will only be done once
+                        if type(value.index) == pandas.DatetimeIndex:
                             value.index = value.index.strftime(date_format)
-                        value = json.loads(value.to_json())
+                        value = value.to_dict()
                         self.hashstore[hashkey] = value
+                        break
                     else:
                         self.hashstore[hashkey][date_as_string] = value
                 else:
@@ -578,11 +591,16 @@ class Evaluator:
                         if flavor == 'pandas':
                             result = pandas.DataFrame.from_records(data=values, index=self.dates_as_string,
                                                                    columns=cols)
+                        elif flavor == 'native':
+                            result = pandas.DataFrame.from_records(data=values, index=self.dates_as_string,
+                                                                   columns=cols).to_dict()
                         else:
                             result = pandas.DataFrame.from_records(data=values, index=self.dates_as_string,
                                                                    columns=cols).to_json(date_format='iso')
 
                     else:
+                        # if type(first_col) != dict:
+                        #     values = {0: values}
                         if type(first_col) != dict and has_blocks:
                             values = {0: values}
                         elif type(first_col) == dict and not has_blocks:
@@ -608,6 +626,9 @@ class Evaluator:
                     raise Exception("Incorrect data format for expression.")
             else:
                 result = values
+
+            return result
+
         except Exception as err:  # other error
             err_class = err.__class__.__name__
             detail = err.args[0]
@@ -616,8 +637,6 @@ class Evaluator:
             line_number -= 11
             errormsg = "%s at line %d: %s" % (err_class, line_number, detail)
             raise Exception(errormsg)
-
-        return result
 
     def GET(self, key, **kwargs):
         """This is simply a pass-through to the newer, lowercase get"""
@@ -674,7 +693,7 @@ class Evaluator:
 
             if offset_timestep < 1 or offset_timestep > len(self.dates):
                 pass
-            elif not start or end:  # TODO: change this when start/end are added to key
+            elif not (start or end):  # TODO: change this when start/end are added to key
                 stored_result = None
                 if rs_value['type'] == 'timeseries':
                     offset_date = self.dates[offset_timestep - 1]
@@ -710,9 +729,9 @@ class Evaluator:
                         depth=depth,
                         parentkey=key,
                         has_blocks=has_blocks,
-                        tsidx=timestep-1, # convert from user timestep to python timestep
+                        tsidx=timestep - 1,  # convert from user timestep to python timestep
                         data_type=tattr.data_type,  # NOTE: the type attribute data type overrides the actual value type
-                        date_format='%Y-%m-%d %H:%M:%S'
+                        date_format=self.date_format
                     )
                     self.store[key] = eval_data
                     value = eval_data
@@ -736,10 +755,10 @@ class Evaluator:
                             end = pendulum.parse(end)
 
                         if key != parentkey:
-                            # start_as_string = start.to_datetime_string()
-                            # end_as_string = end.to_datetime_string()
-                            start_as_string = start.to_iso8601_string().replace('Z', '')
-                            end_as_string = end.to_iso8601_string().replace('Z', '')
+                            start_as_string = start.to_datetime_string()
+                            end_as_string = end.to_datetime_string()
+                            # start_as_string = start.to_iso8601_string().replace('Z', '')
+                            # end_as_string = end.to_iso8601_string().replace('Z', '')
                             # Note annoying mismatch between Pandas and Pendulum iso8601 implementations
                             if default_flavor == 'pandas':
                                 result = value.loc[start_as_string:end_as_string].agg(agg)[0]
