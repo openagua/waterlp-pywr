@@ -71,7 +71,17 @@ if __name__ == '__main__':
         rmtree(app_dir)
     os.makedirs(logs_dir)
 
-    with Connection(hostname=hostname, virtual_host=vhost, userid=userid, password=password) as conn:
+    # Note: heartbeat is needed to ensure dead connections are terminated right away.
+    # heartbeat only works with py-amqp (so don't install librabbitmq).
+    # see https://kombu.readthedocs.io/en/stable/reference/kombu.connection.html#kombu.connection.Connection.heartbeat
+    # Hopefully this will not cause too major a performance hit.
+    with Connection(
+            hostname=hostname,
+            virtual_host=vhost,
+            userid=userid,
+            password=password,
+            heartbeat=5,
+    ) as conn:
         try:
 
             # QUEUE
@@ -92,4 +102,5 @@ if __name__ == '__main__':
 
             worker.run()
         except KeyboardInterrupt:
+            conn.release()
             print('bye bye')
