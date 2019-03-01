@@ -74,13 +74,15 @@ if __name__ == '__main__':
     # Note: heartbeat is needed to ensure dead connections are terminated right away.
     # heartbeat only works with py-amqp (so don't install librabbitmq).
     # see https://kombu.readthedocs.io/en/stable/reference/kombu.connection.html#kombu.connection.Connection.heartbeat
+    # ...and https://www.rabbitmq.com/heartbeats.html
+    # heartbeat = 10 results in an actual ping (and light network traffic, good for keeping a TCP connection alive) every 5 seconds
     # Hopefully this will not cause too major a performance hit.
     with Connection(
             hostname=hostname,
             virtual_host=vhost,
             userid=userid,
             password=password,
-            heartbeat=5,
+            heartbeat=10,
     ) as conn:
         try:
 
