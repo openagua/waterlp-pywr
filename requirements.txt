@@ -23,7 +23,6 @@ itsdangerous==0.24
 Jinja2==2.10
 jmespath==0.9.3
 kombu==4.2.2.post1
-librabbitmq==2.0.0
 livereload==2.6.0
 Markdown==3.0.1
 MarkupSafe==1.0
@@ -42,7 +41,7 @@ python-dateutil==2.6.1
 pytz==2017.3
 pytzdata==2018.5
 PyUtilib==5.6
-pywr==1.0.0
+pywr==1.1.0
 PyYAML==3.13
 redis==3.0.1
 requests==2.21.0

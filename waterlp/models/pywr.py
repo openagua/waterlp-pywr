@@ -1,6 +1,5 @@
 import datetime
 import pandas
-from attrdict import AttrDict
 from pywr.core import Model, Input, Output, Link, River, Storage, RiverGauge, Catchment, Timestepper
 
 # from pywr.parameters import (ArrayIndexedParameter, DataFrameParameter, ConstantParameter)
