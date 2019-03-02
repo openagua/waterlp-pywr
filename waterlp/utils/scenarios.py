@@ -152,23 +152,23 @@ def create_concurrent_subscenarios(network, template, scenario, scenario_type):
 
 def get_resources(network, template, scenario, variation):
     resource_scope = variation.get('resource_scope')
-    ref_id = variation.get('ref_id')
+    resource_id = variation.get('ref_id')
 
     if resource_scope == 'resource':
         ref_key = variation.get('resource_type').lower() + 's'
-        return [resource for resource in network[ref_key] if resource.id == ref_id]
+        return [resource for resource in network[ref_key] if resource.id == resource_id]
 
     elif resource_scope == 'type':
         # get the template type
-        ttype = list(filter(lambda x: x.id == ref_id), template.types)[0]
+        ttype = list(filter(lambda x: x.id == resource_id), template.types)[0]
         ref_key = ttype.resource_type.lower() + 's'
-        return list(filter(lambda x: [t for t in x.types if t.id == ref_id], network[ref_key]))
+        return list(filter(lambda x: [t for t in x.types if t.id == resource_id], network[ref_key]))
 
     elif resource_scope == 'group':
         node_ids = []
         link_ids = []
         for item in scenario.resourcegroupitems:
-            if item['group_id'] == ref_id:
+            if item['group_id'] == resource_id:
                 if item['ref_key'] == 'NODE':
                     node_ids.append(item['ref_id'])
                 elif item['ref_key'] == 'LINK':

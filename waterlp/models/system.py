@@ -1,13 +1,11 @@
 import os
-from math import sqrt
 import json
-from collections import OrderedDict
+from attrdict import AttrDict
 import pandas as pd
 import boto3
-from datetime import datetime as dt
-from time import mktime
 import pendulum
 
+from waterlp.models.pywr import PywrModel
 from waterlp.models.evaluator import Evaluator
 from waterlp.utils.converter import convert
 
@@ -61,12 +59,13 @@ def perturb(val, variation):
         return val
 
 
-def add_subblocks(values, param_name, subblocks):
-    nsubblocks = len(subblocks)
+def add_subblocks(self, values, param_name):
+    subblocks = self.default_subblocks
+    nsubblocks = self.nsubblocks
 
     new_values = {}
 
-    if param_name in ['nodeStorageDemand', 'nodeDemand']:
+    if param_name in self.demandParams:
         new_vals = {}
         try:
             for block in values:
@@ -77,15 +76,17 @@ def add_subblocks(values, param_name, subblocks):
         except:
             raise
 
-    elif param_name in ['nodeValue', 'nodePriority', 'nodeViolationCost']:
-        for block in values:
-            for i, subblock in enumerate(subblocks):
-                new_vals = {}
-                for d, v in values[block].items():
-                    new_vals[d] = v + (1 - sqrt((nsubblocks - i) / nsubblocks))
-                new_values[(block, subblock)] = new_vals
-    else:
-        new_values = values
+    elif param_name in self.valueParams:
+        try:
+            for block in values:
+                for i, subblock in enumerate(subblocks):
+                    new_vals = {}
+                    for d, v in values[block].items():
+                        # new_vals[d] = v + (1 - sqrt((nsubblocks - i) / nsubblocks))
+                        new_vals[d] = v - 1 + ((nsubblocks - i) / nsubblocks) ** 2
+                    new_values[(block, subblock)] = new_vals
+        except:
+            raise
 
     return new_values
 
@@ -111,6 +112,7 @@ class WaterSystem(object):
         self.date_format = date_format
         self.storage_scale = 1
         self.storage_unit = 'hm^3'
+        self.initial_volumes = {}
 
         self.scenarios = {s.name: s for s in all_scenarios}
         self.scenarios_by_id = {s.id: s for s in all_scenarios}
@@ -119,11 +121,9 @@ class WaterSystem(object):
 
         # extract info about nodes & links
         self.network = network
-        self.nodes = {}
-        self.links = {}
+        self.resources = {}
         self.ttypes = {}
         self.res_attrs = {}
-        self.link_nodes = {}
 
         self.timeseries = {}
         self.variables = {}
@@ -164,16 +164,13 @@ class WaterSystem(object):
 
             if resource.get('nodes'):
                 resource_type = 'network'
-                idx = resource.id
             elif resource.get('node_1_id'):
                 resource_type = 'link'
-                idx = (resource.node_1_id, resource.node_2_id)
-                self.links[idx] = resource
-                self.link_nodes[resource.id] = idx
             else:
                 resource_type = 'node'
-                idx = resource.id
-                self.nodes[idx] = resource
+
+            idx = (resource_type, resource.id)
+            self.resources[idx] = resource
 
             # a dictionary of template_type to node_id
             type_name = convert_type_name(rtype.name)
@@ -214,12 +211,10 @@ class WaterSystem(object):
         attr_id = int(attr_id)
         attr_name = self.conn.tattrs.get((resource_type, resource_id, attr_id), {}).get('attr_name',
                                                                                         'unknown attribute')
-        if resource_type == 'node':
-            resource_name = self.nodes.get(resource_id, {}).get('name', 'unknown resource')
-        elif resource_type == 'link':
-            resource_name = self.links.get(self.link_nodes.get(resource_id), {}).get('name', 'unknown resource')
-        else:
+        if resource_type == 'network':
             resource_name = self.network['name']
+        else:
+            resource_name = self.resources.get((resource_type, resource_id), {}).get('name', 'unknown resource')
 
         msg = 'Error calculating {attr} at {rtype} {res}:\n\n{exc}'.format(
             attr=attr_name,
@@ -227,6 +222,8 @@ class WaterSystem(object):
             res=resource_name,
             exc=message
         )
+
+        print(msg)
 
         return Exception(msg)
 
@@ -323,15 +320,13 @@ class WaterSystem(object):
                 if rs.resource_attr_id in self.ra_node:
                     resource_type = 'node'
                     resource_id = self.ra_node[rs.resource_attr_id]
-                    idx = resource_id
                 elif rs.resource_attr_id in self.ra_link:
                     resource_type = 'link'
                     resource_id = self.ra_link[rs.resource_attr_id]
-                    idx = self.link_nodes[resource_id]
                 else:
                     resource_type = 'network'
                     resource_id = self.network.id
-                    idx = -1
+                idx = (resource_type, resource_id)
 
                 try:
 
@@ -339,12 +334,15 @@ class WaterSystem(object):
                     if not res_attr:
                         continue  # this is for a different resource type
 
-                    intermediary = res_attr['properties'].get('intermediary')
-                    is_var = res_attr['is_var'] == 'Y'
+                    # get attr name
+                    attr_id = res_attr['attr_id']
+                    tattr = self.conn.tattrs[(resource_type, resource_id, attr_id)]
+                    intermediary = tattr['properties'].get('intermediary', False)
+                    attr_name = tattr['attr_name']
+                    is_var = tattr['is_var'] == 'Y'
 
                     # non-intermediary outputs should not be pre-processed at all
-                    # if is_var and not intermediary:
-                    if is_var:
+                    if is_var and not intermediary:
                         continue
 
                     # create a dictionary to lookup resourcescenario by resource attribute ID
@@ -355,10 +353,6 @@ class WaterSystem(object):
 
                     # identify as function or not
                     is_function = metadata.get('use_function', 'N') == 'Y'
-
-                    # get attr name
-                    attr_name = res_attr['attr_name']
-                    attr_id = res_attr['attr_id']
 
                     # get data type
                     data_type = rs.value.type
@@ -386,17 +380,16 @@ class WaterSystem(object):
                         if not (is_var and is_function):
                             value = self.evaluator.eval_data(
                                 value=rs.value,
-                                do_eval=False,
                                 fill_value=0,
                                 has_blocks=has_blocks,
                                 date_format=self.date_format,
-                                flavor='dict',
+                                flavor='native',
                                 parentkey=parentkey
                             )
                     except:
                         raise
 
-                    if value is None or type(value) == str and not value:
+                    if not is_var and (value is None or (type(value) == str and not value)):
                         continue
 
                     # TODO: add generic unit conversion utility here
@@ -430,8 +423,8 @@ class WaterSystem(object):
                                     continue
 
                             # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
-                            if has_blocks:
-                                values = add_subblocks(values, param_name, self.default_subblocks)
+                            # if has_blocks:
+                            #     values = add_subblocks(values, param_name, self.default_subblocks)
 
                             if param_name not in self.timeseries:
                                 self.timeseries[param_name] = {}
@@ -455,13 +448,12 @@ class WaterSystem(object):
                     self.blocks[resource_type][idx] = blocks
 
                 except Exception as err:
-                    if resource_type == 'node':
-                        resource_name = self.nodes.get(resource_id, {}).get('name')
-                    elif resource_type == 'link':
-                        n1, n2 = self.link_nodes.get(resource_id)
-                        resource_name = self.links.get((n1, n2), {}).get('name')
-                    else:
+                    if resource_type == 'network':
                         resource_name = 'network'
+                    else:
+                        resource_name = self.resources.get((resource_type, resource_id), {}).get('name',
+                                                                                                 'unknown resource')
+
                     msg = '{}\n\n{}'.format(
                         err,
                         'This error occurred when calculating {} for {}.'.format(rs['value']['name'], resource_name)
@@ -481,6 +473,29 @@ class WaterSystem(object):
 
         # set up subscenario
         self.setup_subscenario(supersubscenario)
+
+        current_dates = self.dates[:self.foresight_periods]
+        current_dates_as_string = self.dates_as_string[:self.foresight_periods]
+        step = self.dates[0].day
+
+        # set up the time steps
+        start = current_dates_as_string[0]
+        end = current_dates_as_string[-1]
+        step = step
+
+        # set up the initial volumes
+        initial_volumes = self.variables.get('nodeInitialStorage', {})
+        for node_id, value in initial_volumes.items():
+            initial_volumes[node_id] = convert(value * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
+
+        self.model = PywrModel(
+            network=self.network,
+            template=self.template,
+            start=start,
+            end=end,
+            step=step,
+            initial_volumes=initial_volumes
+        )
 
     def prepare_params(self):
         """
@@ -503,15 +518,20 @@ class WaterSystem(object):
                 param_name = get_param_name(resource_type, type_attr['attr_name'])
 
                 if param_name not in self.params:
-                    param = type_attr
+                    param = AttrDict(type_attr)
+                    param.update(param.properties)
                     param.update(
-                        resource_type=resource_type.lower(),
-                        intermediary=type_attr['properties'].get('intermediary', False)
+                        scale=param.get('scale', 1),
+                        unit=param.get('unit'),
+                        intermediary=param.get('intermediary', False),
+                        has_blocks=param.get('has_blocks', False),
+                        resource_type=resource_type.lower()
                     )
+                    del param['properties']
                     self.params[param_name] = param
 
                     if param_name == 'nodeInitialStorage':
-                        self.storage_scale = param.properties.get('scale', 1)
+                        self.storage_scale = param.get('scale', 1)
                         self.storage_unit = param.unit
 
     def setup_subscenario(self, supersubscenario):
@@ -543,13 +563,10 @@ class WaterSystem(object):
             for key, variation in variation_set['variations'].items():
                 (resource_type, resource_id, attr_id) = key
                 tattr = self.conn.tattrs[key]
+
                 param_name = get_param_name(resource_type, tattr['attr_name'])
-                idx = None
-                if resource_type == 'node':
-                    idx = resource_id
-                elif resource_type == 'link':
-                    idx = self.link_nodes[resource_id]
-                # TODO: add other resource_types
+
+                idx = (resource_type, resource_id)
 
                 # at this point, timeseries have not been assigned to variables, so these are mutually exclusive
                 # the order here shouldn't matter
@@ -578,65 +595,63 @@ class WaterSystem(object):
                             'dimension': tattr['dimension']
                         }
 
-    def update_param(self, idx, param_name, dates_as_string, values=None, is_function=False, func=None,
-                     has_blocks=False, step='main'):
+    def update_boundary_condition(self, idx, param_name, dates_as_string, is_function=False, func=None, values=None,
+                                  step='main', scope='store'):
 
         try:
             param = self.params[param_name]
-            intermediary = param['intermediary']
-
-            # if step == 'model' and scope in['pre-process' or scope == 'intermediary' and not intermediary:
-            if step == 'main' and intermediary or step in ['pre-process', 'post-process'] and not intermediary:
+            if scope == 'store' \
+                    and (step == 'main' and param.intermediary
+                         or step in ['pre-process', 'post-process'] and not param.intermediary):
                 return
 
-            dimension = param['dimension']
-            data_type = param['data_type']
-            unit = param['unit']
-            attr_id = param['attr_id']
-            resource_type = param['resource_type']
+            if scope == 'model' and param.intermediary:
+                return
+
+            if param.is_var == 'Y' and step != 'post-process':
+                return
+
+            resource_type, resource_id = idx
+
+            dimension = param.dimension
+            data_type = param.data_type
+            unit = param.unit
+            attr_id = param.attr_id
             startup_date = self.variables.get('{}StartupDate'.format(resource_type), {}).get(idx, '')
 
-            if resource_type == 'network':
-                resource = self.network
-            elif resource_type == 'node':
-                resource = self.nodes.get(idx)
-            else:
-                resource = self.links.get(idx)
-            resource_id = resource.id
             parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
 
             if is_function:
-                self.evaluator.data_type = data_type
-                try:
-                    # full_key = (resource_type, resource_id, attr_id, dates_as_string)
-                    rc, errormsg, values = self.evaluator.eval_function(
-                        func,
-                        has_blocks=has_blocks,
-                        flatten=not has_blocks,
-                        data_type=data_type,
-                        parentkey=parentkey,
-                        flavor='dict',
-                    )
-                    if errormsg:
-                        raise Exception(errormsg)
-                except Exception as err:
-                    raise self.create_exception(parentkey, str(err))
+                if scope == 'store':
+                    self.evaluator.data_type = data_type
+                    try:
+                        # full_key = (resource_type, resource_id, attr_id, dates_as_string)
+                        values = self.evaluator.eval_function(
+                            func,
+                            has_blocks=param.has_blocks,
+                            flatten=not param.has_blocks,
+                            data_type=data_type,
+                            parentkey=parentkey,
+                            flavor='native'
+                        )
+                    except Exception as err:
+                        raise self.create_exception(parentkey, str(err))
+
+                else:
+                    values = self.get_value(resource_type, resource_id, attr_id, has_blocks=param.has_blocks)
 
                 # update missing blocks, if any
                 # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
-                if has_blocks:
-                    values = add_subblocks(values, param_name, self.default_subblocks)
+                # if has_blocks:
+                #     values = add_subblocks(values, param_name, self.default_subblocks)
 
-            if not values:
-                return
-
-            if has_blocks:
+            if param.has_blocks:
                 cols = values.keys()
             else:
                 cols = [0]
             for j, c in enumerate(cols):
 
-                if has_blocks:
+                if param.has_blocks:
                     vals = values[c]
                 else:
                     vals = values.get(c, values)
@@ -656,14 +671,17 @@ class WaterSystem(object):
                     else:
                         val = vals[datetime]
 
-                    # if scope == 'intermediary' and intermediary:
-                    #     self.store_value(resource_type, resource_id, attr_id, datetime, val)
-                    self.store_value(resource_type, resource_id, attr_id, datetime, val)
+                    if scope == 'store':
+                        # send the result to the data store
+                        self.store_value(resource_type, resource_id, attr_id, datetime, val,
+                                         has_blocks=param.has_blocks)
+                        continue
 
-                    # elif scope == 'model' and not intermediary:
+                    # if step != 'main':
+                    #     continue
 
                     if val is not None:
-                        scale = param.properties.get('scale', 1)
+                        scale = param.scale
                         # only convert if updating the LP model
                         if dimension == 'Volumetric flow rate':
                             val = convert(val * scale, dimension, unit, 'hm^3 day^-1')
@@ -671,56 +689,36 @@ class WaterSystem(object):
                             val = convert(val * scale, dimension, unit, 'hm^3')
 
                     try:
-                        if param_name == 'nodeRunoff':
-                            self.model.non_storage[resource_id].min_flow = val
-                            self.model.non_storage[resource_id].max_flow = val
-                        elif param_name == 'nodeDemand':
-                            if hasattr(self.model.non_storage[resource_id], 'mrf'):
-                                self.model.non_storage[resource_id].mrf = val  # this is a flow requirement
-                            else:
-                                self.model.non_storage[resource_id].max_flow = val
-                        elif param_name == 'nodeValue':
-                            if resource_id in self.model.non_storage:
-                                self.model.non_storage[resource_id].cost = -val
-                            elif idx in self.model.storage:
-                                self.model.storage[resource_id].cost = -val
-                        elif param_name == 'nodeViolationCost':  # this is a flow requirement
-                            # self.model.non_storage[resource_id].cost = 0.0
-                            self.model.non_storage[resource_id].mrf_cost = -val
-                        elif param_name == 'nodeTurbineCapacity':
-                            self.model.non_storage[resource_id].max_flow = val
-                        elif param_name == 'nodeStorageDemand':
-                            self.model.storage[resource_id].max_volume = val
-                        # elif param_name == 'nodeStorageCapacity':
-                        #     self.model.storage[resource_id].max_volume = val
-                        elif param_name == 'nodeInactivePool':
-                            self.model.storage[resource_id].min_volume = val
-                        elif param_name == 'linkFlowCapacity':
-                            self.model.links[resource_id].max_flow = val
+                        self.model.update_param(resource_type, resource_id, param_name, val)
 
-                    except:
-                        pass  # unclear what the exception is
-        except:
+                    except Exception as err:
+                        print(err)
+                        raise
+        except Exception as err:
+            print(err)
             raise
 
-    def update_initial_conditions(self, variables=None, initialize=False):
+    def update_initial_conditions(self, variables=None):
         """Update initial conditions, such as reservoir and groundwater storage."""
 
-        node_ids = list(self.model.storage.keys())
-
-        if initialize:
-            for node_id in node_ids:
-                initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
-                initial_volume = convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
-                self.model.storage[node_id].initial_volume = initial_volume
-
-        else:
-            for node_id, node in self.model.storage.items():
-                node.initial_volume = node.volume[0]
+        for node_id in self.model.storage:
+            initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
+            initial_volume = convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
+            self.model.storage[node_id].initial_volume = initial_volume
 
         return
 
-    def update_boundary_conditions(self, tsi, tsf, step='main'):
+    def step(self):
+        self.model.model.step()
+
+    def run(self):
+        self.model.model.run()
+
+    def finish(self):
+        self.save_results()
+        self.model.model.finish()
+
+    def update_boundary_conditions(self, tsi, tsf, step='main', initialize=False):
         """
         Update boundary conditions.
         """
@@ -728,68 +726,89 @@ class WaterSystem(object):
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
 
+        # 1. Update values in memory store
         for param_name, params in self.timeseries.items():
             for idx, p in params.items():
-                has_blocks = p.get('has_blocks', False)
-                self.update_param(
+                self.update_boundary_condition(
                     idx,
                     param_name,
                     dates_as_string,
                     values=p.get('values'),
                     is_function=p.get('is_function'),
                     func=p.get('function'),
-                    has_blocks=has_blocks,
                     step=step,
+                    scope='store'
                 )
+
+        # 2. update Pyomo model
+        if step == 'main':
+            # for param_name in self.valueParams + self.demandParams:
+            for param_name, params in self.timeseries.items():
+                for idx, p in params.items():
+                    self.update_boundary_condition(
+                        idx,
+                        param_name,
+                        dates_as_string,
+                        values=p.get('values'),
+                        is_function=p.get('is_function'),
+                        func=p.get('function'),
+                        step=step,
+                        scope='model'
+                    )
 
     def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
 
         # loop through all the model parameters and variables
-        for res_id, node in self.model.non_storage.items():
+        for (resource_type, resource_id), node in self.model.non_storage.items():
             self.store_results(
-                res_id=res_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
                 param_name='nodeOutflow',
                 timestamp=timesteps[0],
                 value=node.flow[0],
             )
 
             self.store_results(
-                res_id=res_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
                 param_name='nodeInflow',
                 timestamp=timesteps[0],
                 value=node.flow[0],
             )
 
-        for res_id, node in self.model.storage.items():
+        for resource_id, node in self.model.storage.items():
             self.store_results(
-                res_id=res_id,
+                resource_type='node',
+                resource_id=resource_id,
                 param_name='nodeStorage',
                 timestamp=timesteps[0],
                 value=node.volume[0],
             )
             self.store_results(
-                res_id=res_id,
+                resource_type='node',
+                resource_id=resource_id,
                 param_name='nodeOutflow',
                 timestamp=timesteps[0],
                 value=sum([input.flow[0] for input in node.inputs]),  # "input" means "input to the system"
             )
             self.store_results(
-                res_id=res_id,
+                resource_type='node',
+                resource_id=resource_id,
                 param_name='nodeInflow',
                 timestamp=timesteps[0],
                 value=sum([output.flow[0] for output in node.outputs]),
             )
 
-    def store_results(self, res_id=None, param_name=None, timestamp=None, value=None):
+    def store_results(self, resource_type=None, resource_id=None, param_name=None, timestamp=None, value=None):
 
         param = self.params.get(param_name, {})
 
-        resource_type = param.get('resource_type')
-        has_blocks = param.get('attr_name') in self.block_params
-        dimension = param.get('dimension')
-        unit = param.get('unit')
-        scale = param.properties.get('scale', 1)
-        attr_id = param.get('attr_id')
+        resource_type = param.resource_type
+        has_blocks = param.has_blocks
+        dimension = param.dimension
+        unit = param.unit
+        scale = param.scale
+        attr_id = param.attr_id
 
         # collect to results
 
@@ -802,12 +821,24 @@ class WaterSystem(object):
             value = convert(value, dimension, 'hm^3 day^-1', unit) / scale
 
         # store in evaluator store
-        self.store_value(resource_type, res_id, attr_id, timestamp, value, has_blocks=has_blocks)
+        self.store_value(resource_type, resource_id, attr_id, timestamp, value, has_blocks=has_blocks)
 
-    def store_value(self, ref_key, ref_id, attr_id, timestamp, val, has_blocks=False):
+    def get_value(self, resource_type, resource_id, attr_id, timestamp=None, has_blocks=False):
+
+        key_string = '{resource_type}/{resource_id}/{attr_id}'.format(resource_type=resource_type, resource_id=resource_id, attr_id=attr_id)
+        if has_blocks:
+            val = self.store[key_string]  # TODO: get specific block
+        else:
+            val = self.store[key_string]
+        if timestamp:
+            return val[timestamp]
+        else:
+            return val
+
+    def store_value(self, resource_type, resource_id, attr_id, timestamp, val, has_blocks=False):
 
         # add new resource scenario if it doesn't exist
-        key = (ref_key, ref_id, attr_id)
+        key = (resource_type, resource_id, attr_id)
         try:
             if key not in self.evaluator.rs_values:
                 tattr = self.conn.tattrs.get(key)
@@ -826,7 +857,7 @@ class WaterSystem(object):
             raise
 
         # store value
-        key_string = '{ref_key}/{ref_id}/{attr_id}'.format(ref_key=ref_key, ref_id=ref_id, attr_id=attr_id)
+        key_string = '{resource_type}/{resource_id}/{attr_id}'.format(resource_type=resource_type, resource_id=resource_id, attr_id=attr_id)
         if key_string not in self.store:
             if has_blocks:
                 self.store[key_string] = {0: {}}
@@ -849,8 +880,6 @@ class WaterSystem(object):
                     self.save_to_file(filename, content)
             else:
                 return None
-
-        return True
 
     def save_to_file(self, filename, content):
         s3 = boto3.client('s3')
@@ -904,7 +933,7 @@ class WaterSystem(object):
                 'modified_by': self.args.user_id,
             })
 
-            self.conn.call('update_scenario', {
+            result = self.conn.call('update_scenario', {
                 'scen': result_scenario,
             })
 
@@ -920,40 +949,50 @@ class WaterSystem(object):
             N = len(self.store)
             for key, value in self.store.items():
                 n += 1
-                res_type, res_id, attr_id = key.split('/')
-                res_id = int(res_id)
+                resource_type, resource_id, attr_id = key.split('/')
+                resource_id = int(resource_id)
                 attr_id = int(attr_id)
 
-                tattr = self.conn.tattrs.get((res_type, res_id, attr_id))
+                tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
                 if not tattr:
                     # Same as previous issue.
                     # This is because the model assigns all resource attribute possibilities to all resources of like type
                     # In practice this shouldn't make a difference, but may result in a model larger than desired
                     # TODO: correct this
                     continue
-                param_name = get_param_name(res_type, tattr['attr_name'])
 
-                if param_name not in self.params:
+                param_name = get_param_name(resource_type, tattr['attr_name'])
+                param = self.params.get(param_name)
+                if not param:
                     continue  # it's probably an internal variable/parameter
 
-                # define the dataset value
-                try:
-                    value = json.dumps({'0': OrderedDict(sorted(value.items()))})
-                except:
-                    continue
-
                 # create the resource scenario (dataset attached to a specific resource attribute)
-                res_idx = (res_type, res_id, attr_id)
+                res_idx = (resource_type, resource_id, attr_id)
                 res_attr_id = self.conn.res_attr_lookup.get(res_idx)
                 if not res_attr_id:
                     continue
                 resource_name = self.conn.raid_to_res_name[res_attr_id]
-                if res_type == 'network':
+                attr_name = tattr['attr_name']
+
+                # define the dataset value
+                try:
+                    if param.has_blocks and type(list(value.values())[0]) == dict:
+                        value = pd.DataFrame(value).to_json()
+                    else:
+                        value = pd.DataFrame({0: value}).to_json()
+                except:
+                    print('Failed to prepare: {}'.format(param_name))
+                    continue
+
+                # if self.args.debug:
+                #     print('Saving: {} for {}'.format(attr_name, resource_name))
+
+                if resource_type == 'network':
                     res_scen_name = '{} - {} [{}]'.format(self.network.name, tattr['attr_name'], self.scenario.name)
                 else:
                     res_scen_name = '{} - {} - {} [{}]'.format(self.network.name,
                                                                resource_name,
-                                                               tattr['attr_name'],
+                                                               attr_name,
                                                                self.scenario.name)
 
                 if tattr['dimension'] == 'Temperature':
@@ -997,7 +1036,8 @@ class WaterSystem(object):
                 if N:
                     self.scenario.reporter.report(action='save', saved=round(n / N * 100))
                 else:
-                    self.scenario.reporter.report(action='error', message="ERROR: No results have been reported. The model might not have run.")
+                    self.scenario.reporter.report(action='error',
+                                                  message="ERROR: No results have been reported. The model might not have run.")
 
         except:
             msg = 'ERROR: Results could not be saved.'
@@ -1091,23 +1131,23 @@ class WaterSystem(object):
             for key, values in self.store.items():
                 pcount += 1
 
-                res_type, res_id, attr_id = key.split('/')
-                res_id = int(res_id)
+                resource_type, resource_id, attr_id = key.split('/')
+                resource_id = int(resource_id)
                 attr_id = int(attr_id)
 
-                tattr = self.conn.tattrs.get((res_type, res_id, attr_id))
+                tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
                 if not tattr:
                     # Same as previous issue.
                     # This is because the model assigns all resource attribute possibilities to all resources of like type
                     # In practice this shouldn't make a difference, but may result in a model larger than desired
                     # TODO: correct this
                     continue
-                param_name = get_param_name(res_type, tattr['attr_name'])
+                param_name = get_param_name(resource_type, tattr['attr_name'])
 
                 if param_name not in self.params:
                     continue  # it's probably an internal variable/parameter
 
-                res_name = res_names.get(res_type, {}).get(res_id) or self.network.name
+                res_name = res_names.get(resource_type, {}).get(resource_id) or self.network.name
                 try:
                     data = pd.DataFrame.from_dict(values, orient='index', columns=[res_name])
                     if param_name not in results:

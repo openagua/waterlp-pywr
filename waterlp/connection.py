@@ -135,8 +135,8 @@ class connection(object):
         res_attr_data = self.call(
             'get_resource_attribute_data',
             dict(
-                ref_key=kwargs['ref_key'].upper(),
-                ref_id=kwargs['ref_id'],
+                ref_key=kwargs['resource_type'].upper(),
+                ref_id=kwargs['resource_id'],
                 scenario_id=kwargs['scenario_id'],
                 attr_id=kwargs['attr_id'] if 'attr_id' in kwargs else None
             )

@@ -9,6 +9,7 @@ from main import commandline_parser, run_model
 
 from waterlp.logger import RunLogger
 
+
 # This code is derived from
 # https://medium.com/python-pandemonium/building-robust-rabbitmq-consumers-with-python-and-kombu-part-2-e9505f56e12e
 
@@ -28,7 +29,6 @@ class Worker(ConsumerMixin):
 
         message.ack()
 
-        body = json.loads(body)
         env = body.get('env', {})
         args = body.get('args')
         kwargs = body.get('kwargs')
@@ -65,8 +65,6 @@ if __name__ == '__main__':
     userid = os.environ.get('RABBITMQ_USERNAME', model_key)
     password = os.environ.get('RABBITMQ_PASSWORD', 'password')
 
-    exchange_name = os.environ.get('RABBITMQ_EXCHANGE', 'amq')
-
     app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
     logs_dir = '{}/logs'.format(app_dir)
     if os.path.exists(app_dir):
@@ -88,15 +86,17 @@ if __name__ == '__main__':
     ) as conn:
         try:
 
-            # EXCHANGE
-            exchange = Exchange(exchange_name, type='direct')
-
             # QUEUE
             queue_name = 'model-{}'.format(model_key)
             if run_key:
                 queue_name += '-{}'.format(run_key)
 
-            queue = Queue(name=queue_name, exchange=exchange, durable=False)
+            queue = Queue(
+                name=queue_name,
+                durable=True,
+                auto_delete=False,
+                message_ttl=3600,
+            )
 
             worker = Worker(conn, [queue])
 
