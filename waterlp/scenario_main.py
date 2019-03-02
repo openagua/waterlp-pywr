@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from waterlp.models.pywr import NetworkModel
 from waterlp.reporters.post_reporter import Reporter as PostReporter
 from waterlp.reporters.ably_reporter import AblyReporter
 from waterlp.screen_reporter import ScreenReporter
@@ -58,6 +59,13 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     # intialize
     system.initialize(supersubscenario)
 
+    system.model = NetworkModel(
+        network=system.network,
+        template=system.template,
+        solver=args.solver,
+        # evaluator=system.evaluator,
+    )
+
     total_steps = len(system.dates)
 
     runs = range(system.nruns)
@@ -80,7 +88,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
         current_dates = system.dates[ts:ts + system.foresight_periods]
         current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
-        step = (system.dates[ts] - system.dates[ts-1]).days if ts else system.dates[0].day
+        if ts != runs[-1]:
+            step = (system.dates[ts + 1] - system.dates[ts]).days
         # 1. Update timesteps
         system.model.update_timesteps(
             start=current_dates_as_string[0],
@@ -93,18 +102,22 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             # 1. UPDATE INITIAL CONDITIONS
             # TODO: delete this once the irregular time step routine of Pywr is implemented
 
-            # system.update_initial_conditions(
-            #     variables=system.variables,
-            # )
+            system.update_initial_conditions(
+                variables=system.variables,
+                initialize=i == 0
+            )
 
             # 2. UPDATE BOUNDARY CONDITIONS
+
+            # system.update_boundary_conditions(ts, ts + system.foresight_periods, 'intermediary')
+            # system.update_boundary_conditions(ts, ts + system.foresight_periods, 'model')
 
             system.update_boundary_conditions(ts, ts + system.foresight_periods, step='pre-process')
             system.update_boundary_conditions(ts, ts + system.foresight_periods, step='main')
 
             # 3. RUN THE MODEL ONE TIME STEP
-            results = system.step()
-            if i == 0 and args.debug and results:
+            results = system.model.run()
+            if i == 0 and results:
                 stats = results.to_dataframe()
                 content = stats.to_csv()
                 system.save_to_file('stats.csv', content)
@@ -129,7 +142,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
                 now = new_now
 
         except Exception as err:
-            saved = system.save_logs()
+            log_dir = system.save_logs()
             system.save_results(error=True)
             msg = 'ERROR: Something went wrong at step {timestep} of {total} ({date}):\n\n{err}'.format(
                 timestep=current_step,
@@ -137,8 +150,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
                 date=current_dates[0].date(),
                 err=err
             )
-            if saved:
-                msg += '\n\nSee log files in "{}"'.format(args.log_dir)
+            if log_dir:
+                msg += '\n\nSee log files in "{}"'.format(log_dir)
             print(msg)
             if system.scenario.reporter:
                 system.scenario.reporter.report(action='error', message=msg)
@@ -146,7 +159,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             raise Exception(msg)
 
         if ts == runs[-1]:
-            system.finish()
+            system.save_results()
             reporter and reporter.report(action='done')
 
             print('finished')

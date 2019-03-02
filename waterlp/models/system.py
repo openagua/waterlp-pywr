@@ -2,14 +2,12 @@ import os
 from math import sqrt
 import json
 from collections import OrderedDict
-from attrdict import AttrDict
 import pandas as pd
 import boto3
 from datetime import datetime as dt
 from time import mktime
 import pendulum
 
-from waterlp.models.pywr import PywrModel
 from waterlp.models.evaluator import Evaluator
 from waterlp.utils.converter import convert
 
@@ -63,13 +61,12 @@ def perturb(val, variation):
         return val
 
 
-def add_subblocks(self, values, param_name):
-    subblocks = self.default_subblocks
-    nsubblocks = self.nsubblocks
+def add_subblocks(values, param_name, subblocks):
+    nsubblocks = len(subblocks)
 
     new_values = {}
 
-    if param_name in self.demandParams:
+    if param_name in ['nodeStorageDemand', 'nodeDemand']:
         new_vals = {}
         try:
             for block in values:
@@ -80,17 +77,15 @@ def add_subblocks(self, values, param_name):
         except:
             raise
 
-    elif param_name in self.valueParams:
-        try:
-            for block in values:
-                for i, subblock in enumerate(subblocks):
-                    new_vals = {}
-                    for d, v in values[block].items():
-                        # new_vals[d] = v + (1 - sqrt((nsubblocks - i) / nsubblocks))
-                        new_vals[d] = v - 1 + ((nsubblocks - i) / nsubblocks) ** 2
-                    new_values[(block, subblock)] = new_vals
-        except:
-            raise
+    elif param_name in ['nodeValue', 'nodePriority', 'nodeViolationCost']:
+        for block in values:
+            for i, subblock in enumerate(subblocks):
+                new_vals = {}
+                for d, v in values[block].items():
+                    new_vals[d] = v + (1 - sqrt((nsubblocks - i) / nsubblocks))
+                new_values[(block, subblock)] = new_vals
+    else:
+        new_values = values
 
     return new_values
 
@@ -116,7 +111,6 @@ class WaterSystem(object):
         self.date_format = date_format
         self.storage_scale = 1
         self.storage_unit = 'hm^3'
-        self.initial_volumes = {}
 
         self.scenarios = {s.name: s for s in all_scenarios}
         self.scenarios_by_id = {s.id: s for s in all_scenarios}
@@ -233,8 +227,6 @@ class WaterSystem(object):
             res=resource_name,
             exc=message
         )
-
-        print(msg)
 
         return Exception(msg)
 
@@ -398,7 +390,7 @@ class WaterSystem(object):
                                 fill_value=0,
                                 has_blocks=has_blocks,
                                 date_format=self.date_format,
-                                flavor='native',
+                                flavor='dict',
                                 parentkey=parentkey
                             )
                     except:
@@ -438,8 +430,8 @@ class WaterSystem(object):
                                     continue
 
                             # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
-                            # if has_blocks:
-                            #     values = add_subblocks(values, param_name, self.default_subblocks)
+                            if has_blocks:
+                                values = add_subblocks(values, param_name, self.default_subblocks)
 
                             if param_name not in self.timeseries:
                                 self.timeseries[param_name] = {}
@@ -490,29 +482,6 @@ class WaterSystem(object):
         # set up subscenario
         self.setup_subscenario(supersubscenario)
 
-        current_dates = self.dates[:self.foresight_periods]
-        current_dates_as_string = self.dates_as_string[:self.foresight_periods]
-        step = self.dates[0].day
-
-        # set up the time steps
-        start=current_dates_as_string[0]
-        end=current_dates_as_string[-1]
-        step=step
-
-        # set up the initial volumes
-        initial_volumes = self.variables.get('nodeInitialStorage', {})
-        for node_id, value in initial_volumes.items():
-            initial_volumes[node_id] = convert(value * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
-
-        self.model = PywrModel(
-            network=self.network,
-            template=self.template,
-            start=start,
-            end=end,
-            step=step,
-            initial_volumes=initial_volumes
-        )
-
     def prepare_params(self):
         """
         Declare parameters, based on the template type.
@@ -534,20 +503,15 @@ class WaterSystem(object):
                 param_name = get_param_name(resource_type, type_attr['attr_name'])
 
                 if param_name not in self.params:
-                    param = AttrDict(type_attr)
-                    param.update(param.properties)
+                    param = type_attr
                     param.update(
-                        scale=param.get('scale', 1),
-                        unit=param.get('unit'),
-                        intermediary=param.get('intermediary', False),
-                        has_blocks=param.get('has_blocks', False),
-                        resource_type=resource_type.lower()
+                        resource_type=resource_type.lower(),
+                        intermediary=type_attr['properties'].get('intermediary', False)
                     )
-                    del param['properties']
                     self.params[param_name] = param
 
                     if param_name == 'nodeInitialStorage':
-                        self.storage_scale = param.get('scale', 1)
+                        self.storage_scale = param.properties.get('scale', 1)
                         self.storage_unit = param.unit
 
     def setup_subscenario(self, supersubscenario):
@@ -614,23 +578,22 @@ class WaterSystem(object):
                             'dimension': tattr['dimension']
                         }
 
-    def update_boundary_condition(self, idx, param_name, dates_as_string, is_function=False, func=None, values=None, step='main', scope='store'):
+    def update_param(self, idx, param_name, dates_as_string, values=None, is_function=False, func=None,
+                     has_blocks=False, step='main'):
 
         try:
             param = self.params[param_name]
-            if scope == 'store' \
-                    and (step == 'main' and param.intermediary
-                         or step in ['pre-process', 'post-process'] and not param.intermediary):
+            intermediary = param['intermediary']
+
+            # if step == 'model' and scope in['pre-process' or scope == 'intermediary' and not intermediary:
+            if step == 'main' and intermediary or step in ['pre-process', 'post-process'] and not intermediary:
                 return
 
-            if scope == 'model' and param.intermediary:
-                return
-
-            dimension = param.dimension
-            data_type = param.data_type
-            unit = param.unit
-            attr_id = param.attr_id
-            resource_type = param.resource_type
+            dimension = param['dimension']
+            data_type = param['data_type']
+            unit = param['unit']
+            attr_id = param['attr_id']
+            resource_type = param['resource_type']
             startup_date = self.variables.get('{}StartupDate'.format(resource_type), {}).get(idx, '')
 
             if resource_type == 'network':
@@ -643,36 +606,37 @@ class WaterSystem(object):
             parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
 
             if is_function:
-                if scope == 'store':
-                    self.evaluator.data_type = data_type
-                    try:
-                        # full_key = (resource_type, resource_id, attr_id, dates_as_string)
-                        values = self.evaluator.eval_function(
-                            func,
-                            has_blocks=param.has_blocks,
-                            flatten=not param.has_blocks,
-                            data_type=data_type,
-                            parentkey=parentkey,
-                            flavor='native'
-                        )
-                    except Exception as err:
-                        raise self.create_exception(parentkey, str(err))
-
-                else:
-                    values = self.get_value(resource_type, resource_id, attr_id, has_blocks=param.has_blocks)
+                self.evaluator.data_type = data_type
+                try:
+                    # full_key = (resource_type, resource_id, attr_id, dates_as_string)
+                    rc, errormsg, values = self.evaluator.eval_function(
+                        func,
+                        has_blocks=has_blocks,
+                        flatten=not has_blocks,
+                        data_type=data_type,
+                        parentkey=parentkey,
+                        flavor='dict',
+                    )
+                    if errormsg:
+                        raise Exception(errormsg)
+                except Exception as err:
+                    raise self.create_exception(parentkey, str(err))
 
                 # update missing blocks, if any
                 # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
-                # if has_blocks:
-                #     values = add_subblocks(values, param_name, self.default_subblocks)
+                if has_blocks:
+                    values = add_subblocks(values, param_name, self.default_subblocks)
 
-            if param.has_blocks:
+            if not values:
+                return
+
+            if has_blocks:
                 cols = values.keys()
             else:
                 cols = [0]
             for j, c in enumerate(cols):
 
-                if param.has_blocks:
+                if has_blocks:
                     vals = values[c]
                 else:
                     vals = values.get(c, values)
@@ -692,15 +656,14 @@ class WaterSystem(object):
                     else:
                         val = vals[datetime]
 
-                    if scope == 'store':
-                        # send the result to the data store
-                        self.store_value(resource_type, resource_id, attr_id, datetime, val, has_blocks=param.has_blocks)
+                    # if scope == 'intermediary' and intermediary:
+                    #     self.store_value(resource_type, resource_id, attr_id, datetime, val)
+                    self.store_value(resource_type, resource_id, attr_id, datetime, val)
 
-                    if step != 'main':
-                        continue
+                    # elif scope == 'model' and not intermediary:
 
                     if val is not None:
-                        scale = param.scale
+                        scale = param.properties.get('scale', 1)
                         # only convert if updating the LP model
                         if dimension == 'Volumetric flow rate':
                             val = convert(val * scale, dimension, unit, 'hm^3 day^-1')
@@ -708,36 +671,56 @@ class WaterSystem(object):
                             val = convert(val * scale, dimension, unit, 'hm^3')
 
                     try:
-                        self.model.update_param(resource_type, resource_id, param_name, val)
+                        if param_name == 'nodeRunoff':
+                            self.model.non_storage[resource_id].min_flow = val
+                            self.model.non_storage[resource_id].max_flow = val
+                        elif param_name == 'nodeDemand':
+                            if hasattr(self.model.non_storage[resource_id], 'mrf'):
+                                self.model.non_storage[resource_id].mrf = val  # this is a flow requirement
+                            else:
+                                self.model.non_storage[resource_id].max_flow = val
+                        elif param_name == 'nodeValue':
+                            if resource_id in self.model.non_storage:
+                                self.model.non_storage[resource_id].cost = -val
+                            elif idx in self.model.storage:
+                                self.model.storage[resource_id].cost = -val
+                        elif param_name == 'nodeViolationCost':  # this is a flow requirement
+                            # self.model.non_storage[resource_id].cost = 0.0
+                            self.model.non_storage[resource_id].mrf_cost = -val
+                        elif param_name == 'nodeTurbineCapacity':
+                            self.model.non_storage[resource_id].max_flow = val
+                        elif param_name == 'nodeStorageDemand':
+                            self.model.storage[resource_id].max_volume = val
+                        # elif param_name == 'nodeStorageCapacity':
+                        #     self.model.storage[resource_id].max_volume = val
+                        elif param_name == 'nodeInactivePool':
+                            self.model.storage[resource_id].min_volume = val
+                        elif param_name == 'linkFlowCapacity':
+                            self.model.links[resource_id].max_flow = val
 
-                    except Exception as err:
-                        print(err)
-                        raise
-        except Exception as err:
-            print(err)
+                    except:
+                        pass  # unclear what the exception is
+        except:
             raise
 
-    def update_initial_conditions(self, variables=None):
+    def update_initial_conditions(self, variables=None, initialize=False):
         """Update initial conditions, such as reservoir and groundwater storage."""
 
-        for node_id in self.model.storage:
-            initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
-            initial_volume = convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
-            self.model.storage[node_id].initial_volume = initial_volume
+        node_ids = list(self.model.storage.keys())
+
+        if initialize:
+            for node_id in node_ids:
+                initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
+                initial_volume = convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
+                self.model.storage[node_id].initial_volume = initial_volume
+
+        else:
+            for node_id, node in self.model.storage.items():
+                node.initial_volume = node.volume[0]
 
         return
 
-    def step(self):
-        self.model.model.step()
-
-    def run(self):
-        self.model.model.run()
-
-    def finish(self):
-        self.save_results()
-        self.model.model.finish()
-
-    def update_boundary_conditions(self, tsi, tsf, step='main', initialize=False):
+    def update_boundary_conditions(self, tsi, tsf, step='main'):
         """
         Update boundary conditions.
         """
@@ -745,56 +728,25 @@ class WaterSystem(object):
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
 
-        # for param_name, params in self.timeseries.items():
-        #     for idx, p in params.items():
-        #         has_blocks = p.get('has_blocks', False)
-        #         self.update_boundary_condition(
-        #             idx,
-        #             param_name,
-        #             dates_as_string,
-        #             values=p.get('values'),
-        #             is_function=p.get('is_function'),
-        #             func=p.get('function'),
-        #             has_blocks=has_blocks,
-        #             step=step,
-        #         )
-
-        # 1. Update values in memory store
         for param_name, params in self.timeseries.items():
             for idx, p in params.items():
-                self.update_boundary_condition(
+                has_blocks = p.get('has_blocks', False)
+                self.update_param(
                     idx,
                     param_name,
                     dates_as_string,
                     values=p.get('values'),
                     is_function=p.get('is_function'),
                     func=p.get('function'),
+                    has_blocks=has_blocks,
                     step=step,
-                    scope='store'
                 )
-
-        # 2. update Pyomo model
-        if step == 'main':
-            # for param_name in self.valueParams + self.demandParams:
-            for param_name, params in self.timeseries.items():
-                for idx, p in params.items():
-                    self.update_boundary_condition(
-                        idx,
-                        param_name,
-                        dates_as_string,
-                        values=p.get('values'),
-                        is_function=p.get('is_function'),
-                        func=p.get('function'),
-                        step=step,
-                        scope='model'
-                    )
 
     def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
 
         # loop through all the model parameters and variables
-        for (res_type, res_id), node in self.model.non_storage.items():
+        for res_id, node in self.model.non_storage.items():
             self.store_results(
-                res_type=res_type,
                 res_id=res_id,
                 param_name='nodeOutflow',
                 timestamp=timesteps[0],
@@ -802,7 +754,6 @@ class WaterSystem(object):
             )
 
             self.store_results(
-                res_type=res_type,
                 res_id=res_id,
                 param_name='nodeInflow',
                 timestamp=timesteps[0],
@@ -811,37 +762,34 @@ class WaterSystem(object):
 
         for res_id, node in self.model.storage.items():
             self.store_results(
-                res_type='node',
                 res_id=res_id,
                 param_name='nodeStorage',
                 timestamp=timesteps[0],
                 value=node.volume[0],
             )
             self.store_results(
-                res_type='node',
                 res_id=res_id,
                 param_name='nodeOutflow',
                 timestamp=timesteps[0],
                 value=sum([input.flow[0] for input in node.inputs]),  # "input" means "input to the system"
             )
             self.store_results(
-                res_type='node',
                 res_id=res_id,
                 param_name='nodeInflow',
                 timestamp=timesteps[0],
                 value=sum([output.flow[0] for output in node.outputs]),
             )
 
-    def store_results(self, res_type=None, res_id=None, param_name=None, timestamp=None, value=None):
+    def store_results(self, res_id=None, param_name=None, timestamp=None, value=None):
 
         param = self.params.get(param_name, {})
 
-        resource_type = param.resource_type
-        has_blocks = param.has_blocks
-        dimension = param.dimension
-        unit = param.unit
-        scale = param.scale
-        attr_id = param.attr_id
+        resource_type = param.get('resource_type')
+        has_blocks = param.get('attr_name') in self.block_params
+        dimension = param.get('dimension')
+        unit = param.get('unit')
+        scale = param.properties.get('scale', 1)
+        attr_id = param.get('attr_id')
 
         # collect to results
 
@@ -854,24 +802,12 @@ class WaterSystem(object):
             value = convert(value, dimension, 'hm^3 day^-1', unit) / scale
 
         # store in evaluator store
-        self.store_value(res_type, res_id, attr_id, timestamp, value, has_blocks=has_blocks)
+        self.store_value(resource_type, res_id, attr_id, timestamp, value, has_blocks=has_blocks)
 
-    def get_value(self, res_type, ref_id, attr_id, timestamp=None, has_blocks=False):
-
-        key_string = '{res_type}/{ref_id}/{attr_id}'.format(res_type=res_type, ref_id=ref_id, attr_id=attr_id)
-        if has_blocks:
-            val = self.store[key_string] # TODO: get specific block
-        else:
-            val = self.store[key_string]
-        if timestamp:
-            return val[timestamp]
-        else:
-            return val
-
-    def store_value(self, res_type, ref_id, attr_id, timestamp, val, has_blocks=False):
+    def store_value(self, ref_key, ref_id, attr_id, timestamp, val, has_blocks=False):
 
         # add new resource scenario if it doesn't exist
-        key = (res_type, ref_id, attr_id)
+        key = (ref_key, ref_id, attr_id)
         try:
             if key not in self.evaluator.rs_values:
                 tattr = self.conn.tattrs.get(key)
@@ -890,7 +826,7 @@ class WaterSystem(object):
             raise
 
         # store value
-        key_string = '{res_type}/{ref_id}/{attr_id}'.format(res_type=res_type, ref_id=ref_id, attr_id=attr_id)
+        key_string = '{ref_key}/{ref_id}/{attr_id}'.format(ref_key=ref_key, ref_id=ref_id, attr_id=attr_id)
         if key_string not in self.store:
             if has_blocks:
                 self.store[key_string] = {0: {}}
@@ -913,6 +849,8 @@ class WaterSystem(object):
                     self.save_to_file(filename, content)
             else:
                 return None
+
+        return True
 
     def save_to_file(self, filename, content):
         s3 = boto3.client('s3')
@@ -966,7 +904,7 @@ class WaterSystem(object):
                 'modified_by': self.args.user_id,
             })
 
-            result = self.conn.call('update_scenario', {
+            self.conn.call('update_scenario', {
                 'scen': result_scenario,
             })
 
@@ -993,11 +931,16 @@ class WaterSystem(object):
                     # In practice this shouldn't make a difference, but may result in a model larger than desired
                     # TODO: correct this
                     continue
-
                 param_name = get_param_name(res_type, tattr['attr_name'])
-                param = self.params.get(param_name)
-                if not param:
+
+                if param_name not in self.params:
                     continue  # it's probably an internal variable/parameter
+
+                # define the dataset value
+                try:
+                    value = json.dumps({'0': OrderedDict(sorted(value.items()))})
+                except:
+                    continue
 
                 # create the resource scenario (dataset attached to a specific resource attribute)
                 res_idx = (res_type, res_id, attr_id)
@@ -1005,27 +948,12 @@ class WaterSystem(object):
                 if not res_attr_id:
                     continue
                 resource_name = self.conn.raid_to_res_name[res_attr_id]
-                attr_name = tattr['attr_name']
-
-                # define the dataset value
-                try:
-                    if param.has_blocks and type(list(value.values())[0]) == dict:
-                        value = pd.DataFrame(value).to_json()
-                    else:
-                        value = pd.DataFrame({0: value}).to_json()
-                except:
-                    print('Failed to prepare: {}'.format(param_name))
-                    continue
-
-                if self.args.debug:
-                    print('Saving: {} for {}'.format(attr_name, resource_name))
-
                 if res_type == 'network':
                     res_scen_name = '{} - {} [{}]'.format(self.network.name, tattr['attr_name'], self.scenario.name)
                 else:
                     res_scen_name = '{} - {} - {} [{}]'.format(self.network.name,
                                                                resource_name,
-                                                               attr_name,
+                                                               tattr['attr_name'],
                                                                self.scenario.name)
 
                 if tattr['dimension'] == 'Temperature':
@@ -1069,8 +997,7 @@ class WaterSystem(object):
                 if N:
                     self.scenario.reporter.report(action='save', saved=round(n / N * 100))
                 else:
-                    self.scenario.reporter.report(action='error',
-                                                  message="ERROR: No results have been reported. The model might not have run.")
+                    self.scenario.reporter.report(action='error', message="ERROR: No results have been reported. The model might not have run.")
 
         except:
             msg = 'ERROR: Results could not be saved.'

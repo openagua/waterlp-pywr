@@ -21,7 +21,7 @@ class Worker(ConsumerMixin):
     def get_consumers(self, Consumer, channel):
         return [Consumer(queues=self.queues,
                          prefetch_count=0,
-                         # no_ack=True,
+                         no_ack=False,
                          callbacks=[self.process_task])]
 
     def process_task(self, body, message):
@@ -73,19 +73,7 @@ if __name__ == '__main__':
         rmtree(app_dir)
     os.makedirs(logs_dir)
 
-    # Note: heartbeat is needed to ensure dead connections are terminated right away.
-    # heartbeat only works with py-amqp (so don't install librabbitmq).
-    # see https://kombu.readthedocs.io/en/stable/reference/kombu.connection.html#kombu.connection.Connection.heartbeat
-    # ...and https://www.rabbitmq.com/heartbeats.html
-    # heartbeat = 10 results in an actual ping (and light network traffic, good for keeping a TCP connection alive) every 5 seconds
-    # Hopefully this will not cause too major a performance hit.
-    with Connection(
-            hostname=hostname,
-            virtual_host=vhost,
-            userid=userid,
-            password=password,
-            heartbeat=10,
-    ) as conn:
+    with Connection(hostname=hostname, virtual_host=vhost, userid=userid, password=password) as conn:
         try:
 
             # EXCHANGE
@@ -104,5 +92,4 @@ if __name__ == '__main__':
 
             worker.run()
         except KeyboardInterrupt:
-            conn.release()
             print('bye bye')

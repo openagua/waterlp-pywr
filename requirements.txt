@@ -42,7 +42,7 @@ python-dateutil==2.6.1
 pytz==2017.3
 pytzdata==2018.5
 PyUtilib==5.6
-pywr==1.1.0
+pywr==1.0.0
 PyYAML==3.13
 redis==3.0.1
 requests==2.21.0
