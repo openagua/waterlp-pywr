@@ -484,9 +484,9 @@ class WaterSystem(object):
         step = step
 
         # set up the initial volumes
-        initial_volumes = self.variables.get('nodeInitialStorage', {})
-        for node_id, value in initial_volumes.items():
-            initial_volumes[node_id] = convert(value * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
+        initial_volumes = {}
+        for (resource_type, resource_id), value in self.variables.get('nodeInitialStorage', {}).items():
+            initial_volumes[resource_id] = convert(value * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
 
         self.model = PywrModel(
             network=self.network,
@@ -697,16 +697,6 @@ class WaterSystem(object):
         except Exception as err:
             print(err)
             raise
-
-    def update_initial_conditions(self, variables=None):
-        """Update initial conditions, such as reservoir and groundwater storage."""
-
-        for node_id in self.model.storage:
-            initial_volume = variables.get('nodeInitialStorage', {}).get(node_id, 0)
-            initial_volume = convert(initial_volume * self.storage_scale, 'Volume', self.storage_unit, 'hm^3')
-            self.model.storage[node_id].initial_volume = initial_volume
-
-        return
 
     def step(self):
         self.model.model.step()

@@ -9,7 +9,6 @@ total_steps = 0
 
 
 def run_scenario(supersubscenario, args, verbose=False, **kwargs):
-
     global current_step, total_steps
 
     system = supersubscenario.get('system')
@@ -58,6 +57,9 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     # intialize
     system.initialize(supersubscenario)
 
+    # 1. UPDATE INITIAL CONDITIONS
+    # TODO: delete this once the irregular time step routine of Pywr is implemented
+
     total_steps = len(system.dates)
 
     runs = range(system.nruns)
@@ -80,7 +82,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
         current_dates = system.dates[ts:ts + system.foresight_periods]
         current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
-        step = (system.dates[ts] - system.dates[ts-1]).days if ts else system.dates[0].day
+        step = (system.dates[ts] - system.dates[ts - 1]).days if ts else system.dates[0].day
         # 1. Update timesteps
         system.model.update_timesteps(
             start=current_dates_as_string[0],
@@ -89,13 +91,6 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         )
 
         try:
-
-            # 1. UPDATE INITIAL CONDITIONS
-            # TODO: delete this once the irregular time step routine of Pywr is implemented
-
-            # system.update_initial_conditions(
-            #     variables=system.variables,
-            # )
 
             # 2. UPDATE BOUNDARY CONDITIONS
 
