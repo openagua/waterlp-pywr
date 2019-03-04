@@ -37,6 +37,7 @@ class PywrModel(object):
         self.model = None
         self.storage = {}
         self.non_storage = {}
+        self.updated = {} # dictionary for debugging whether or not a param has been updated
 
         self.create_model(network, template, initial_volumes=initial_volumes)
 
@@ -221,38 +222,46 @@ class PywrModel(object):
             datetime.timedelta(step)  # step
         )
 
-    def update_param(self, resource_type, resource_id, param_name, value):
+    def update_param(self, resource_type, resource_id, type_name, attr_name, value):
 
-        idx = (resource_type, resource_id)
+        res_idx = (resource_type, resource_id)
+        attr_idx = (resource_type, resource_id, attr_name)
 
-        if param_name == 'nodeRunoff':
-            self.non_storage[idx].flow = value
-        elif param_name == 'nodeDemand':
-            self.non_storage[idx].max_flow = value
-        elif param_name in ['nodeWaterDemand', 'nodeRequirement']:
-            self.non_storage[idx].mrf = value  # this is a flow requirement
-        elif param_name == 'nodeValue':
-            self.non_storage[idx].cost = -value
-        elif param_name == 'nodeExcessValue':
-            self.non_storage[idx].cost = -value
-        elif param_name in ['nodeViolationCost', 'nodeBaseValue']:  # this is a flow requirement
-            self.non_storage[idx].mrf_cost = -value
-        elif param_name == 'nodeTurbineCapacity':
-            if idx in self.non_storage:
-                self.non_storage[idx].max_flow = value
-            elif idx in self.storage:  # TODO: add hydropower to reservoirs?
-                # self.storage[idx].max_flow = value
+        if (attr_idx) in self.updated:
+            return
+
+        self.updated[attr_idx] = True
+
+        ta = (type_name, attr_name)
+
+        if ta == ('catchment', 'runoff'):
+            self.non_storage[res_idx].flow = value
+        elif attr_name == 'demand':
+            self.non_storage[res_idx].max_flow = value
+        elif attr_name in ['water demand', 'requirement']:
+            self.non_storage[res_idx].mrf = value  # this is a flow requirement
+        elif 'demand' in type_name and attr_name == 'value':
+            self.non_storage[res_idx].cost = -value
+        elif type_name == 'hydropower' and attr_name == 'excess value':
+            self.non_storage[res_idx].cost = -value
+        elif attr_name in ['violation cost', 'base value']:  # this is a flow requirement
+            self.non_storage[res_idx].mrf_cost = -value
+        elif attr_name == 'turbine capacity':
+            if res_idx in self.non_storage:
+                self.non_storage[res_idx].max_flow = value
+            elif res_idx in self.storage:  # TODO: add hydropower to reservoirs?
+                # self.storage[res_idx].max_flow = value
                 pass
-        elif param_name == 'nodeStorageDemand':
+        elif attr_name == 'storage demand':
             self.storage[resource_id].max_volume = value
-        elif param_name == 'nodeStorageValue':
+        elif attr_name == 'storage value':
             self.storage[resource_id].cost = -value
-        elif param_name == 'nodeStorageCapacity':
+        elif attr_name == 'storage capacity':
             self.storage[resource_id].max_volume = value
-        elif param_name == 'nodeInactivePool':
+        elif attr_name == 'inactive pool':
             self.storage[resource_id].min_volume = value
-        elif param_name == 'linkFlowCapacity':
-            self.non_storage[idx].max_flow = value
+        elif attr_name == 'flow capacity':
+            self.non_storage[res_idx].max_flow = value
 
         return
 

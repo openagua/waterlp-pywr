@@ -161,7 +161,7 @@ def get_resources(network, template, scenario, variation):
     elif resource_scope == 'type':
         # get the template type
         ttype = list(filter(lambda x: x.id == resource_id), template.types)[0]
-        ref_key = ttype.resource_type.lower() + 's'
+        ref_key = ttype['resource_type'].lower() + 's'
         return list(filter(lambda x: [t for t in x.types if t.id == resource_id], network[ref_key]))
 
     elif resource_scope == 'group':

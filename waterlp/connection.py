@@ -47,7 +47,7 @@ class connection(object):
         # create some useful dictionaries
         # Since pyomo doesn't know about attribute ids, etc., we need to be able to relate
         # pyomo variable names to resource attributes to be able to save data back to the database.
-        # the res_attrs dictionary lets us do that by relating pyomo indices and variable names to
+        # the res_tattrs dictionary lets us do that by relating pyomo indices and variable names to
         # the resource attribute id.
 
         # dictionary to store resource attribute dataset types
@@ -60,6 +60,7 @@ class connection(object):
         self.res_attr_lookup = {}
         self.attr_ids = {}
         self.raid_to_res_name = {}
+        self.attr_id_lookup = {}
         self.node_names = {}
         self.tattrs = {}
 
@@ -77,6 +78,8 @@ class connection(object):
                 if ra.attr_id in tattrs:
                     key = (resource_type, resource.id, ra.attr_id)
                     self.tattrs[key] = tattrs[ra.attr_id]
+                    # TODO: confirm the following doesn't overwrite attributes with a different dimension
+                    self.attr_id_lookup[(resource_type, resource.id, ra.attr_name.lower())] = ra.attr_id
                     self.res_attr_lookup[key] = ra.id
                     self.attr_ids[ra.id] = ra.attr_id
                     self.raid_to_res_name[ra.id] = resource.name
