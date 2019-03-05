@@ -2,6 +2,8 @@ import datetime
 import pandas
 from pywr.core import Model, Input, Output, Link, River, Storage, RiverGauge, Catchment, Timestepper
 
+from .domains import Hydropower, InstreamFlowRequirement
+
 # from pywr.parameters import (ArrayIndexedParameter, DataFrameParameter, ConstantParameter)
 # from pywr.recorders import (NumpyArrayNodeRecorder, NumpyArrayStorageRecorder)
 
@@ -21,12 +23,12 @@ input_types = {
     'Catchment': Catchment,
 }
 node_types = {
-    'Hydropower': RiverGauge,
-    'Flow Requirement': RiverGauge,
+    'Hydropower': Hydropower,
+    'Flow Requirement': InstreamFlowRequirement,
 }
 
 link_types = {
-    # 'River': River,
+    'River': River,
 }
 
 
@@ -236,22 +238,25 @@ class PywrModel(object):
 
         if ta == ('catchment', 'runoff'):
             self.non_storage[res_idx].flow = value
-        elif attr_name == 'demand':
-            self.non_storage[res_idx].max_flow = value
-        elif attr_name in ['water demand', 'requirement']:
-            self.non_storage[res_idx].mrf = value  # this is a flow requirement
-        elif 'demand' in type_name and attr_name == 'value':
-            self.non_storage[res_idx].cost = -value
-        elif type_name == 'hydropower' and attr_name == 'excess value':
-            self.non_storage[res_idx].cost = -value
-        elif attr_name in ['violation cost', 'base value']:  # this is a flow requirement
-            self.non_storage[res_idx].mrf_cost = -value
-        elif attr_name == 'turbine capacity':
-            if res_idx in self.non_storage:
+        elif 'demand' in type_name:
+            if attr_name == 'value':
+                self.non_storage[res_idx].cost = -value
+            elif attr_name == 'demand':
                 self.non_storage[res_idx].max_flow = value
-            elif res_idx in self.storage:  # TODO: add hydropower to reservoirs?
-                # self.storage[res_idx].max_flow = value
-                pass
+        elif type_name == 'flow requirement':
+            if attr_name == 'requirement':
+                self.non_storage[res_idx].mrf = value
+            elif attr_name == 'violation cost':
+                self.non_storage[res_idx].mrf_cost = -value
+        if type_name == 'hydropower':
+            if attr_name == 'water demand':
+                self.non_storage[res_idx].base_flow = value
+            elif attr_name == 'base value':
+                self.non_storage[res_idx].base_cost = -value
+            elif attr_name == 'turbine capacity':
+                self.non_storage[res_idx].turbine_capacity = value
+            elif attr_name == 'excess value':
+                self.non_storage[res_idx].excess_cost = -value
         elif attr_name == 'storage demand':
             self.storage[resource_id].max_volume = value
         elif attr_name == 'storage value':
