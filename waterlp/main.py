@@ -11,16 +11,15 @@ from datetime import datetime
 from itertools import product
 from copy import copy
 
-from redis import Redis
-
 from waterlp.connection import connection
 from waterlp.models.system import WaterSystem
 from waterlp.scenario_class import Scenario
-from waterlp.reporters.post_reporter import Reporter as PostReporter
+from waterlp.reporters.post import Reporter as PostReporter
 from waterlp.reporters.redis import local_redis
 from waterlp.logger import create_logger
 from waterlp.utils.scenarios import create_subscenarios
 from waterlp.tasks import run_scenario
+
 
 def run_scenarios(args, networklog):
     """
@@ -35,7 +34,6 @@ def run_scenarios(args, networklog):
     if args.debug:
         print("DEBUG ON")
     else:
-        # scenario is the Cythonized version of scenario_main
         print("DEBUG OFF")
 
     args.starttime = datetime.now()  # args.start_time is iso-formatted, but this is still probably redundant

@@ -2,9 +2,9 @@ from datetime import datetime
 from redis import Redis
 from .celery import app
 
-from waterlp.reporters.post_reporter import Reporter as PostReporter
-from waterlp.reporters.ably_reporter import AblyReporter
-from waterlp.screen_reporter import ScreenReporter
+from waterlp.reporters.post import Reporter as PostReporter
+from waterlp.reporters.ably import AblyReporter
+from waterlp.reporters.screen import ScreenReporter
 
 current_step = 0
 total_steps = 0
