@@ -1,4 +1,6 @@
 from datetime import datetime
+from redis import Redis
+from .celery import app
 
 from waterlp.reporters.post_reporter import Reporter as PostReporter
 from waterlp.reporters.ably_reporter import AblyReporter
@@ -7,9 +9,21 @@ from waterlp.screen_reporter import ScreenReporter
 current_step = 0
 total_steps = 0
 
+local_redis = Redis(host='localhost', port=6379, db=0)
 
-def run_scenario(supersubscenario, args, verbose=False, **kwargs):
+@app.task
+def run_scenario(supersubscenario, args, verbose=False):
     global current_step, total_steps
+
+    # Check OA to see if the model request is still valid
+    sid = supersubscenario.get('sid')
+    if sid and not local_redis.get(sid):
+        return
+    # guid = body.get('guid')
+    # run_secret = body.get('run_secret')
+    # resp = requests.get(url, params={'guid': guid, 'run_secret': run_secret})
+    # if not resp.ok:
+    #     return
 
     system = supersubscenario.get('system')
 
@@ -22,7 +36,7 @@ def run_scenario(supersubscenario, args, verbose=False, **kwargs):
         post_reporter.is_main_reporter = True
         reporter = post_reporter
     elif args.message_protocol == 'ably':  # i.e. www.ably.io
-        ably_auth_url = args.ably_auth_url if 'ably_auth_url' in args else kwargs.pop('ably_auth_url', None)
+        ably_auth_url = args.ably_auth_url if 'ably_auth_url' in args else None
         reporter = AblyReporter(args, ably_auth_url=ably_auth_url, post_reporter=post_reporter)
 
     if reporter:

@@ -2,16 +2,16 @@
 
 import argparse
 from ast import literal_eval
-import multiprocessing as mp
 import os
 import shutil
 import sys
 import uuid
 import getpass
 from datetime import datetime
-from functools import partial
 from itertools import product
 from copy import copy
+
+from redis import Redis
 
 from waterlp.connection import connection
 from waterlp.models.system import WaterSystem
@@ -19,22 +19,20 @@ from waterlp.scenario_class import Scenario
 from waterlp.reporters.post_reporter import Reporter as PostReporter
 from waterlp.logger import create_logger
 from waterlp.utils.scenarios import create_subscenarios
-from waterlp.scenario_main import run_scenario
+from waterlp.tasks import run_scenario
 
 
-def run_scenarios(args, networklog, **kwargs):
+def run_scenarios(args, networklog):
     """
         This is a wrapper for running all the scenarios, where scenario runs are
-        processor-independent. As much of the Pyomo model is created here as
-        possible.
+        processor-independent. As much of the model is created here as
+        possible, to be efficient in setup processing.
     """
 
     verbose = False
 
-    # from scenario_debug import run_scenario
     print('')
     if args.debug:
-        # from scenario_debug import run_scenario
         print("DEBUG ON")
     else:
         # scenario is the Cythonized version of scenario_main
@@ -84,6 +82,12 @@ def run_scenarios(args, networklog, **kwargs):
         except:
             scenario_ids = [scenario_ids]
 
+        sid = '-'.join([args.unique_id] + [str(s) for s in set(scenario_ids)])
+
+        local_redis = Redis(host='localhost', port=6379, db=0)
+        local_redis.set(sid, 1)
+        local_redis.expire(sid, 3600 * 24)  # expire in 24 hours
+
         # create the scenario class
         scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
 
@@ -125,6 +129,7 @@ def run_scenarios(args, networklog, **kwargs):
 
             supersubscenarios = [{
                 'i': i + 1,
+                'sid': sid,
                 'system': copy(system),  # this is intended to be a shallow copy
                 'variation_sets': variation_sets,
             } for i, variation_sets in enumerate(flattened)]
@@ -150,30 +155,15 @@ def run_scenarios(args, networklog, **kwargs):
 
             raise
 
-    # =======================
-    # multiprocessing routine
-    # =======================
+    # ================
+    # run the scenario
+    # ================
 
     if args.debug:
-        run_scenario(all_supersubscenarios[0], args=args, verbose=verbose, **kwargs)
+        run_scenario(all_supersubscenarios[0], args=args, verbose=verbose)
     else:
-        p = partial(run_scenario, args=args, verbose=verbose, **kwargs)
-
-        # set multiprocessing parameters
-        poolsize = mp.cpu_count()
-        maxtasks = None
-        chunksize = 1
-
-        pool = mp.Pool(processes=poolsize, maxtasksperchild=maxtasks)
-
-        msg = 'Running {} subscenarios in multicore mode with {} workers, {} chunks each.' \
-            .format(system.scenario.subscenario_count, poolsize, chunksize)
-        print(msg)
-
-        pool.imap(p, all_supersubscenarios, chunksize=chunksize)
-        pool.close()
-        pool.join()
-
+        for ss in all_supersubscenarios:
+            run_scenario.apply_async((ss, args, verbose), serializer='pickle', compression='gzip')
     return
 
 
@@ -247,7 +237,6 @@ def commandline_parser():
 
 
 def run_model(args, logs_dir, **kwargs):
-
     # initialize log directories
     args.log_dir = os.path.join(logs_dir, args.log_dir)
 
@@ -273,10 +262,10 @@ def run_model(args, logs_dir, **kwargs):
     args_str = '\n\t'.join([''] + ['{}: {}'.format(a[0], a[1]) for a in argtuples])
     networklog.info('started model run with args: %s' % args_str)
 
-    if 'ably_auth_url' not in kwargs:
-        kwargs['ably_auth_url'] = os.environ.get('ABLY_AUTH_URL')
+    for key in kwargs:
+        args.__setattr__(key, kwargs.get(key))
 
-    run_scenarios(args, networklog, **kwargs)
+    run_scenarios(args, networklog)
 
     return
 

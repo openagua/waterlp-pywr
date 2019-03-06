@@ -1,14 +1,12 @@
 #!/usr/bin/env python
-import json
 import getpass
 from shutil import rmtree
-from kombu import Connection, Exchange, Queue
+from kombu import Connection, Queue
 from kombu.mixins import ConsumerMixin
 import os
-from main import commandline_parser, run_model
+from waterlp.main import commandline_parser, run_model
 
 from waterlp.logger import RunLogger
-
 
 # This code is derived from
 # https://medium.com/python-pandemonium/building-robust-rabbitmq-consumers-with-python-and-kombu-part-2-e9505f56e12e
@@ -29,6 +27,15 @@ class Worker(ConsumerMixin):
 
         message.ack()
 
+        # # 1) check OA to see if the model request is still valid
+        # url = body.get('url')
+        # guid = body.get('guid')
+        # run_secret = body.get('run_secret')
+        # resp = requests.get(url, params={'guid': guid, 'run_secret': run_secret})
+        # if not resp.ok:
+        #     return
+
+        # 2) start modeling based on instructions
         env = body.get('env', {})
         args = body.get('args')
         kwargs = body.get('kwargs')
@@ -77,13 +84,15 @@ if __name__ == '__main__':
     # ...and https://www.rabbitmq.com/heartbeats.html
     # heartbeat = 10 results in an actual ping (and light network traffic, good for keeping a TCP connection alive) every 5 seconds
     # Hopefully this will not cause too major a performance hit.
-    with Connection(
-            hostname=hostname,
-            virtual_host=vhost,
-            userid=userid,
-            password=password,
-            heartbeat=10,
-    ) as conn:
+
+    url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
+        username=userid,
+        password=password,
+        hostname=hostname,
+        vhost=vhost,
+    )
+
+    with Connection(url, heartbeat=10) as conn:
         try:
 
             # QUEUE

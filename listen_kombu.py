@@ -5,7 +5,7 @@ from shutil import rmtree
 from kombu import Connection, Exchange, Queue
 from kombu.mixins import ConsumerMixin
 import os
-from main import commandline_parser, run_model
+from waterlp.main import commandline_parser, run_model
 
 from waterlp.logger import RunLogger
 
