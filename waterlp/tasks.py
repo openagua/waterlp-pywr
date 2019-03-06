@@ -18,12 +18,8 @@ def run_scenario(supersubscenario, args, verbose=False):
     # Check OA to see if the model request is still valid
     sid = supersubscenario.get('sid')
     if sid and not local_redis.get(sid):
+        # raise Exception("Run cancelled by user.")
         return
-    # guid = body.get('guid')
-    # run_secret = body.get('run_secret')
-    # resp = requests.get(url, params={'guid': guid, 'run_secret': run_secret})
-    # if not resp.ok:
-    #     return
 
     system = supersubscenario.get('system')
 
@@ -65,6 +61,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
     debug = args.debug
 
+    sid = supersubscenario.get('sid')
+
     # initialize with scenario
     # current_dates = system.dates[0:foresight_periods]
 
@@ -83,6 +81,9 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     now = datetime.now()
 
     while i < n:
+
+        if sid and not local_redis.get(sid):
+            break
 
         ts = runs[i]
         current_step = i + 1

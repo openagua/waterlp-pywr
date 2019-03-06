@@ -7,6 +7,7 @@ import os
 from waterlp.main import commandline_parser, run_model
 
 from waterlp.logger import RunLogger
+from waterlp.reporters.redis import local_redis
 
 # This code is derived from
 # https://medium.com/python-pandemonium/building-robust-rabbitmq-consumers-with-python-and-kombu-part-2-e9505f56e12e
@@ -18,24 +19,36 @@ class Worker(ConsumerMixin):
         self.queues = queues
 
     def get_consumers(self, Consumer, channel):
-        return [Consumer(queues=self.queues,
-                         prefetch_count=0,
-                         # no_ack=True,
-                         callbacks=[self.process_task])]
+        run_consumer = Consumer(queues=self.queues,
+                                prefetch_count=0,
+                                # no_ack=True,
+                                callbacks=[self.cancel_task, self.process_task])
+        # cancel_consumer = Consumer(queues=self.queues,
+        #                            prefetch_count=0,
+        #                            # no_ack=True,
+        #                            callbacks=[self.cancel_task])
+        return [run_consumer]
+
+    def cancel_task(self, body, message):
+
+        action = body.get('action')
+        if action is None or action == 'start':
+            return
+        sid = body.get('sid')
+        if sid and action == 'cancel':
+            local_redis.delete(sid)
+            message.ack()
 
     def process_task(self, body, message):
 
-        message.ack()
-
-        # # 1) check OA to see if the model request is still valid
-        # url = body.get('url')
-        # guid = body.get('guid')
-        # run_secret = body.get('run_secret')
-        # resp = requests.get(url, params={'guid': guid, 'run_secret': run_secret})
-        # if not resp.ok:
-        #     return
+        if message.acknowledged:
+            return
 
         # 2) start modeling based on instructions
+        action = body.get('action')
+        if action is not None and action != 'start':
+            return
+
         env = body.get('env', {})
         args = body.get('args')
         kwargs = body.get('kwargs')
@@ -60,7 +73,7 @@ class Worker(ConsumerMixin):
         except Exception as err:
             RunLog.log_error(message=str(err))
 
-        # message.ack()
+        message.ack()
 
 
 if __name__ == '__main__':
@@ -100,14 +113,21 @@ if __name__ == '__main__':
             if run_key:
                 queue_name += '-{}'.format(run_key)
 
-            queue = Queue(
+            task_queue = Queue(
                 name=queue_name,
                 durable=True,
                 auto_delete=False,
                 message_ttl=3600,
             )
 
-            worker = Worker(conn, [queue])
+            # cancel_queue = Queue(
+            #     name='{}-cancel'.format(queue_name),
+            #     durable=True,
+            #     auto_delete=False,
+            #     message_ttl=3600
+            # )
+
+            worker = Worker(conn, [task_queue])
 
             print(' [*] Waiting for messages. To exit press CTRL+C')
 

@@ -17,10 +17,10 @@ from waterlp.connection import connection
 from waterlp.models.system import WaterSystem
 from waterlp.scenario_class import Scenario
 from waterlp.reporters.post_reporter import Reporter as PostReporter
+from waterlp.reporters.redis import local_redis
 from waterlp.logger import create_logger
 from waterlp.utils.scenarios import create_subscenarios
 from waterlp.tasks import run_scenario
-
 
 def run_scenarios(args, networklog):
     """
@@ -84,7 +84,6 @@ def run_scenarios(args, networklog):
 
         sid = '-'.join([args.unique_id] + [str(s) for s in set(scenario_ids)])
 
-        local_redis = Redis(host='localhost', port=6379, db=0)
         local_redis.set(sid, 1)
         local_redis.expire(sid, 3600 * 24)  # expire in 24 hours
 
