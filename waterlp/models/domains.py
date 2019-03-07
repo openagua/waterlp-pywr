@@ -102,6 +102,8 @@ class Hydropower(RiverDomainMixin, PiecewiseLink):
         if turbine_capacity is not None:
             base_flow = min(base_flow, turbine_capacity)
             excess_capacity = turbine_capacity - base_flow
+        if base_flow < 0.0:
+            base_flow = max(base_flow, 0.0)
         kwargs['cost'] = [base_cost, excess_cost]
         kwargs['max_flow'] = [base_flow, excess_capacity]
         super(Hydropower, self).__init__(*args, **kwargs)
@@ -123,6 +125,8 @@ class Hydropower(RiverDomainMixin, PiecewiseLink):
                     capacity = self.sublinks[0].max_flow + self.sublinks[1].max_flow
                 self.sublinks[0].max_flow = min(capacity, value)
                 self.sublinks[1].max_flow = capacity - self.sublinks[0].max_flow
+                if self.sublinks[0].max_flow < 0:
+                    raise Exception("Hydropower base flow cannot be negative.")
 
         return locals()
 
