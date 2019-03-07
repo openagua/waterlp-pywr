@@ -1,22 +1,101 @@
+import os
+import getpass
+import json
 from datetime import datetime
 from itertools import product
 from copy import copy
+from ast import literal_eval
 
-from .celery import app
+from .celery_app import app
 from celery.exceptions import Ignore
 
 from waterlp.reporters.post import Reporter as PostReporter
 from waterlp.reporters.ably import AblyReporter
 from waterlp.reporters.screen import ScreenReporter
-
+from waterlp.logger import RunLogger
+from waterlp.parser import commandline_parser
 from waterlp.connection import connection
+from waterlp.logger import create_logger
 from waterlp.models.system import WaterSystem
 from waterlp.scenario_class import Scenario
 from waterlp.reporters.redis import local_redis
 from waterlp.utils.scenarios import create_subscenarios
 from waterlp.utils.application import ProcessState
+
 current_step = 0
 total_steps = 0
+
+
+class Object(object):
+    def __init__(self, values):
+        for key in values:
+            setattr(self, key, values[key])
+
+
+@app.task(name='openagua.run')
+def run(**kwargs):
+    """This is for starting the model with Celery"""
+    env = kwargs.get('env', {})
+    args = kwargs.get('args')
+    kwargs = kwargs.get('kwargs')
+
+    # parse arguments
+    parser = commandline_parser()
+    args, unknown = parser.parse_known_args(args)
+
+    # specify the log directory
+    app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
+    logs_dir = '{}/logs'.format(app_dir)
+
+    # set up some environment variables
+    # TODO: can probably pass these directly, since we now have them...
+    for key, value in env.items():
+        os.environ[key] = value
+    print(' [x] Running "{}" with {}'.format(args.run_name, args))
+
+    RunLog = RunLogger(name='waterlp', app_name=args.app_name, run_name=args.run_name, logs_dir=logs_dir,
+                       username=args.hydra_username)
+
+    try:
+        RunLog.log_start()
+        run_model(args, logs_dir, **kwargs)
+        RunLog.log_finish()
+    except:
+        pass
+
+
+def run_model(args, logs_dir, **kwargs):
+    # initialize log directories
+    args.log_dir = os.path.join(logs_dir, args.log_dir)
+
+    # specify scenarios log dir
+    args.scenario_log_dir = 'scenario_logs'
+    args.scenario_log_dir = os.path.join(args.log_dir, args.scenario_log_dir)
+
+    if not os.path.exists(args.log_dir):
+        os.makedirs(args.log_dir)
+    if not os.path.exists(args.scenario_log_dir):
+        os.makedirs(args.scenario_log_dir)
+
+    # create top-level log file
+    logfile = os.path.join(args.log_dir, 'log.txt')
+    networklog = create_logger(args.app_name, logfile, '%(asctime)s - %(message)s')
+
+    # pre-processing
+    if args.scenario_ids:
+        args.scenario_ids = literal_eval(args.scenario_ids)
+
+    argdict = args.__dict__.copy()
+    argtuples = sorted(argdict.items())
+    args_str = '\n\t'.join([''] + ['{}: {}'.format(a[0], a[1]) for a in argtuples])
+    networklog.info('Started model run with args: %s' % args_str)
+
+    for key in kwargs:
+        setattr(args, key, kwargs.get(key))
+
+    run_scenarios(args, networklog)
+
+    return
 
 
 def run_scenarios(args, networklog):

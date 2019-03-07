@@ -8,7 +8,6 @@ from os import environ
 
 from waterlp.main import commandline_parser, run_model
 from waterlp.logger import RunLogger
-from waterlp.celery import app as celery_app
 from waterlp.utils.application import PNSubscribeCallback
 
 from pubnub.pnconfiguration import PNConfiguration
