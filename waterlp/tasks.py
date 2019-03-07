@@ -1,15 +1,166 @@
 from datetime import datetime
-from redis import Redis
+from itertools import product
+from copy import copy
+
 from .celery import app
+from celery.exceptions import Ignore
 
 from waterlp.reporters.post import Reporter as PostReporter
 from waterlp.reporters.ably import AblyReporter
 from waterlp.reporters.screen import ScreenReporter
 
+from waterlp.connection import connection
+from waterlp.models.system import WaterSystem
+from waterlp.scenario_class import Scenario
+from waterlp.reporters.redis import local_redis
+from waterlp.utils.scenarios import create_subscenarios
+from waterlp.utils.application import ProcessState
 current_step = 0
 total_steps = 0
 
-local_redis = Redis(host='localhost', port=6379, db=0)
+
+def run_scenarios(args, networklog):
+    """
+        This is a wrapper for running all the scenarios, where scenario runs are
+        processor-independent. As much of the model is created here as
+        possible, to be efficient in setup processing.
+    """
+
+    verbose = False
+
+    print('')
+    if args.debug:
+        print("DEBUG ON")
+    else:
+        print("DEBUG OFF")
+
+    args.starttime = datetime.now()  # args.start_time is iso-formatted, but this is still probably redundant
+
+    print("================================================")
+    print("STARTING RUN")
+    print("Start time: {}".format(args.starttime.isoformat()))
+    print("================================================")
+
+    # ======================
+    # connect to data server
+    # ======================
+    all_scenario_ids = list(set(sum(args.scenario_ids, ())))
+
+    conn = connection(args=args, scenario_ids=all_scenario_ids)
+
+    # ====================================
+    # define subscenarios (aka variations)
+    # ====================================
+
+    # this gets all scenarios in the system, not just the main scenarios of interest, but without data
+    network = conn.get_basic_network()
+
+    # create the system
+    base_system = WaterSystem(
+        conn=conn,
+        name=args.app_name,
+        all_scenarios=network.scenarios,
+        network=conn.network,
+        template=conn.template,
+        date_format='%Y-%m-%d %H:%M:%S',
+        args=args,
+    )
+
+    all_supersubscenarios = []
+
+    # prepare the reporter
+    post_reporter = PostReporter(args) if args.post_url else None
+
+    for scenario_ids in args.scenario_ids:
+
+        try:
+            scenario_ids = list(scenario_ids)
+        except:
+            scenario_ids = [scenario_ids]
+
+        sid = '-'.join([args.unique_id] + [str(s) for s in set(scenario_ids)])
+
+        if local_redis.get(sid) == ProcessState.CANCELED:
+            raise Ignore
+
+        # create the scenario class
+        scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
+
+        start_payload = scenario.update_payload(action='start')
+        networklog.info(msg="Model started")
+        if post_reporter:
+            post_reporter.start(is_main_reporter=(args.message_protocol == 'post'), **start_payload)
+
+        else:
+            print("Model started")
+
+        # create the system class
+        # TODO: pass resources as dictionaries instead for quicker lookup
+        option_subscenarios = create_subscenarios(conn.network, conn.template, scenario.option, 'option')
+        scenario_subscenarios = create_subscenarios(conn.network, conn.template, scenario.scenario, 'scenario')
+
+        try:
+
+            # prepare the system
+            system = copy(base_system)
+            system.scenario = scenario
+            system.initialize_time_steps()
+            system.collect_source_data()
+
+            # organize the subscenarios
+            flattened = product(option_subscenarios, scenario_subscenarios)
+            subscenario_count = len(option_subscenarios) * len(scenario_subscenarios)
+
+            if args.debug:
+                verbose = True
+                system.nruns = min(args.debug_ts, system.nruns)
+                system.dates = system.dates[:system.nruns]
+                system.dates_as_string = system.dates_as_string[:system.nruns]
+
+                subscenario_count = min(subscenario_count, 1)
+
+            system.scenario.subscenario_count = subscenario_count
+            system.scenario.total_steps = subscenario_count * len(system.dates)
+
+            supersubscenarios = [{
+                'i': i + 1,
+                'sid': sid,
+                'system': copy(system),  # this is intended to be a shallow copy
+                'variation_sets': variation_sets,
+            } for i, variation_sets in enumerate(flattened)]
+
+            all_supersubscenarios.extend(supersubscenarios[:subscenario_count])
+
+        except Exception as err:
+            err_class = err.__class__.__name__
+            if err_class == 'InnerSyntaxError':
+                m = err.message
+            else:
+                # m = "Unknown error."
+                m = str(err)
+            message = "Error: Failed to prepare system.\n\n{}".format(m)
+
+            if post_reporter:
+                payload = scenario.update_payload(action='error', message=message)
+                post_reporter.report(**payload)
+            else:
+                print(message)
+
+            networklog.info(msg=message)
+
+            raise
+
+    # ================
+    # run the scenario
+    # ================
+
+    if args.debug:
+        run_scenario(all_supersubscenarios[0], args=args, verbose=verbose)
+    else:
+        for ss in all_supersubscenarios:
+            run_scenario.apply_async((ss, args, verbose), serializer='pickle', compression='gzip')
+    return
+
 
 @app.task
 def run_scenario(supersubscenario, args, verbose=False):
@@ -17,9 +168,8 @@ def run_scenario(supersubscenario, args, verbose=False):
 
     # Check OA to see if the model request is still valid
     sid = supersubscenario.get('sid')
-    if sid and not local_redis.get(sid):
-        # raise Exception("Run cancelled by user.")
-        return
+    if local_redis.get(sid) == ProcessState.CANCELED:
+        raise Ignore
 
     system = supersubscenario.get('system')
 
@@ -47,6 +197,9 @@ def run_scenario(supersubscenario, args, verbose=False):
         # for result in _run_scenario(system, args, conn, supersubscenario, reporter=reporter, verbose=verbose):
         #     pass
         _run_scenario(system, args, supersubscenario, reporter=reporter, verbose=verbose)
+
+    except Ignore as err:
+        raise
 
     except Exception as err:
 
@@ -82,8 +235,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
     while i < n:
 
-        if sid and not local_redis.get(sid):
-            break
+        if local_redis.get(sid) == ProcessState.CANCELED:
+            raise Exception('Canceled by user.')
 
         ts = runs[i]
         current_step = i + 1

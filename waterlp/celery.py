@@ -1,12 +1,4 @@
-from os import environ
 from celery import Celery
-
-# hostname = environ.get('RABBITMQ_HOST', 'localhost')
-# model_key = environ.get('MODEL_KEY')
-# run_key = environ.get('RUN_KEY')
-# vhost = environ.get('RABBITMQ_VHOST', 'model-run')
-# userid = environ.get('RABBITMQ_USERNAME', model_key)
-# password = environ.get('RABBITMQ_PASSWORD', 'password')
 
 app = Celery(
     'app',
@@ -17,4 +9,21 @@ app = Celery(
 app.config_from_object('waterlp.celeryconfig')
 
 if __name__ == '__main__':
-    app.start()
+
+    # model_key = environ.get('MODEL_KEY')
+    # run_key = environ.get('RUN_KEY')
+    #
+    # queue_name = 'model-{}'.format(model_key)
+    # if run_key:
+    #     queue_name += '-{}'.format(run_key)
+    # p = global_redis.pubsub()
+    # p.subscribe(**{queue_name: message_handler})
+    # thread = p.run_in_thread(sleep_time=0.001)
+    # print("Subscribed to: " + queue_name)
+
+    try:
+        app.start()
+
+    except KeyboardInterrupt:
+        # thread.release()
+        print('Stopped by user.')

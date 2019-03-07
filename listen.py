@@ -4,10 +4,16 @@ from shutil import rmtree
 from kombu import Connection, Queue
 from kombu.mixins import ConsumerMixin
 import os
-from waterlp.main import commandline_parser, run_model
+from os import environ
 
+from waterlp.main import commandline_parser, run_model
 from waterlp.logger import RunLogger
 from waterlp.reporters.redis import local_redis
+from waterlp.utils.application import message_handler, PNSubscribeCallback
+
+from pubnub.pnconfiguration import PNConfiguration
+from pubnub.pubnub import PubNub
+
 
 # This code is derived from
 # https://medium.com/python-pandemonium/building-robust-rabbitmq-consumers-with-python-and-kombu-part-2-e9505f56e12e
@@ -22,27 +28,12 @@ class Worker(ConsumerMixin):
         run_consumer = Consumer(queues=self.queues,
                                 prefetch_count=0,
                                 # no_ack=True,
-                                callbacks=[self.cancel_task, self.process_task])
-        # cancel_consumer = Consumer(queues=self.queues,
-        #                            prefetch_count=0,
-        #                            # no_ack=True,
-        #                            callbacks=[self.cancel_task])
+                                callbacks=[self.process_task])
         return [run_consumer]
-
-    def cancel_task(self, body, message):
-
-        action = body.get('action')
-        if action is None or action == 'start':
-            return
-        sid = body.get('sid')
-        if sid and action == 'cancel':
-            local_redis.delete(sid)
-            message.ack()
 
     def process_task(self, body, message):
 
-        if message.acknowledged:
-            return
+        message.ack() # acknowledge right away to prevent repeating a failed task
 
         # 2) start modeling based on instructions
         action = body.get('action')
@@ -72,8 +63,6 @@ class Worker(ConsumerMixin):
             RunLog.log_finish()
         except Exception as err:
             RunLog.log_error(message=str(err))
-
-        message.ack()
 
 
 if __name__ == '__main__':
@@ -105,14 +94,23 @@ if __name__ == '__main__':
         vhost=vhost,
     )
 
+    queue_name = 'model-{}'.format(model_key)
+    if run_key:
+        queue_name += '-{}'.format(run_key)
+
+    pnconfig = PNConfiguration()
+    pnconfig.subscribe_key = environ.get('PUBNUB_SUBSCRIBE_KEY')
+    pnconfig.ssl = False
+    pubnub = PubNub(pnconfig)
+    pubnub.add_listener(PNSubscribeCallback())
+
+    pubnub.subscribe().channels(queue_name).execute()
+    print(" [*] Subscribed to PubNub")
+
     with Connection(url, heartbeat=10) as conn:
         try:
 
             # QUEUE
-            queue_name = 'model-{}'.format(model_key)
-            if run_key:
-                queue_name += '-{}'.format(run_key)
-
             task_queue = Queue(
                 name=queue_name,
                 durable=True,
@@ -120,18 +118,12 @@ if __name__ == '__main__':
                 message_ttl=3600,
             )
 
-            # cancel_queue = Queue(
-            #     name='{}-cancel'.format(queue_name),
-            #     durable=True,
-            #     auto_delete=False,
-            #     message_ttl=3600
-            # )
-
             worker = Worker(conn, [task_queue])
 
             print(' [*] Waiting for messages. To exit press CTRL+C')
 
             worker.run()
         except KeyboardInterrupt:
+            pubnub.unsubscribe_all()
             conn.release()
             print('bye bye')
