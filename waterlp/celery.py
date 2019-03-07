@@ -10,16 +10,8 @@ app.config_from_object('waterlp.celeryconfig')
 
 if __name__ == '__main__':
 
-    # model_key = environ.get('MODEL_KEY')
-    # run_key = environ.get('RUN_KEY')
-    #
-    # queue_name = 'model-{}'.format(model_key)
-    # if run_key:
-    #     queue_name += '-{}'.format(run_key)
-    # p = global_redis.pubsub()
-    # p.subscribe(**{queue_name: message_handler})
-    # thread = p.run_in_thread(sleep_time=0.001)
-    # print("Subscribed to: " + queue_name)
+    # TODO: migrate listen/Kombu to here (100% Celery)
+    # see: https://www.distributedpython.com/2018/06/19/call-celery-task-outside-codebase/
 
     try:
         app.start()

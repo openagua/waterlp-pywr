@@ -8,8 +8,8 @@ from os import environ
 
 from waterlp.main import commandline_parser, run_model
 from waterlp.logger import RunLogger
-from waterlp.reporters.redis import local_redis
-from waterlp.utils.application import message_handler, PNSubscribeCallback
+from waterlp.celery import app as celery_app
+from waterlp.utils.application import PNSubscribeCallback
 
 from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub
@@ -107,6 +107,9 @@ if __name__ == '__main__':
     pubnub.subscribe().channels(queue_name).execute()
     print(" [*] Subscribed to PubNub")
 
+    # celery_app.start(['celery', '-A', 'waterlp.celery', 'worker'])
+    print(" [*] Celery app started")
+
     with Connection(url, heartbeat=10) as conn:
         try:
 
@@ -120,9 +123,10 @@ if __name__ == '__main__':
 
             worker = Worker(conn, [task_queue])
 
-            print(' [*] Waiting for messages. To exit press CTRL+C')
+            print(' [*] Waiting for tasks. To exit press CTRL+C')
 
             worker.run()
+
         except KeyboardInterrupt:
             pubnub.unsubscribe_all()
             conn.release()
