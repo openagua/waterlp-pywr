@@ -14,4 +14,4 @@ WORKDIR /user/local/model
 
 RUN pip3 install -r requirements.txt
 
-CMD ["python3", "celery_app.py"]
+CMD ["python3", "./celery_app.py"]
