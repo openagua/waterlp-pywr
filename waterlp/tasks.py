@@ -11,7 +11,8 @@ from .celery_app import app
 from celery.exceptions import Ignore
 
 from waterlp.reporters.post import Reporter as PostReporter
-from waterlp.reporters.ably import AblyReporter
+# from waterlp.reporters.ably import AblyReporter
+from waterlp.reporters.pubnub import PubNubReporter
 from waterlp.reporters.screen import ScreenReporter
 from waterlp.logger import RunLogger
 from waterlp.parser import commandline_parser
@@ -269,9 +270,10 @@ def run_scenario(supersubscenario, args, verbose=False):
     elif args.message_protocol == 'post':
         post_reporter.is_main_reporter = True
         reporter = post_reporter
-    elif args.message_protocol == 'ably':  # i.e. www.ably.io
-        ably_auth_url = args.ably_auth_url if 'ably_auth_url' in args else None
-        reporter = AblyReporter(args, ably_auth_url=ably_auth_url, post_reporter=post_reporter)
+    # elif args.message_protocol == 'ably':
+    #     reporter = AblyReporter(args, post_reporter=post_reporter)
+    elif args.message_protocol == 'pubnub':
+        reporter = PubNubReporter(args, post_reporter=post_reporter)
 
     if reporter:
         reporter.updater = system.scenario.update_payload
