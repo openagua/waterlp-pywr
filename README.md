@@ -1,5 +1,13 @@
 Documentation forthcoming. In the meantime:
 
+## Requirements
+
+WaterLP requires Redis, which may be installed independently from WaterLP with:
+
+```bash
+docker run --name oa-redis -d redis
+```
+
 ## Running with Docker
 
 WaterLP can be run in listening mode using Docker, with `openagua/waterlp-pywr`.
@@ -14,14 +22,14 @@ To update the image/container, any existing running container should be removed.
 
 Download the image with:
 ```bash
-sudo docker pull openagua/waterlp-pywr
+docker pull openagua/waterlp-pywr
 ```
 
 ### Run the container
 
 Running the container from the images is done with one command, with several options. The general format for running a container is:
 ```bash
-sudo docker run [options] openagua/waterlp-pywr
+docker run [options] openagua/waterlp-pywr
 ```
 
 The WaterLP Docker container should be run with at least the following options:
@@ -61,7 +69,7 @@ In this example, variables will be stored in a file called `env.list`, and log f
 
 With `ubuntu` as the example user (as on an Amazon EC2 Ubuntu instance), the container is run with:
 ```bash
-sudo docker run -d --env-file ./env.list --volume /home/ubuntu:/home/root --volume /etc/localtime:/etc/localtime  --name waterlp openagua/waterlp-pywr
+docker run -d --env-file ./env.list --link oa-redis:redis --volume /home/ubuntu:/home/root --volume /etc/localtime:/etc/localtime  --name waterlp openagua/waterlp-pywr
 ```
 
 To stop and remove this container (for example to update the docker image):
@@ -73,17 +81,18 @@ These can be brought together into a single set of commands to start/update the 
 
 Since updating images in this way results in an accumulation of unused images, it can be useful to remove old images. This is achieved with the following command:
 ```bash
-sudo docker image prune --all --force
+docker image prune --all --force
 ```
 where `--all` removes all unused images and `--force` does not prompt for user confirmation (this is optional if running this command manually). See [docker image prune](https://docs.docker.com/engine/reference/commandline/image_prune/).
 
 These can be brought together in a bash script, as follows:
 
 ```bash
-sudo docker pull openagua/waterlp-pywr
-sudo docker rm --force waterlp
-sudo docker run -d --env-file ./env.list --volume /home/ubuntu:/home/root --volume /etc/localtime:/etc/localtime  --name waterlp openagua/waterlp-pywr
-sudo docker image prune --all --force
+docker run --name oa-redis -d redis
+docker pull openagua/waterlp-pywr
+docker rm --force waterlp
+docker run -d --env-file ./env.list --link oa-redis:redis --volume /home/ubuntu:/home/root --volume /etc/localtime:/etc/localtime  --name waterlp openagua/waterlp-pywr
+docker image prune --all --force
 ```
 
 This is included in `run_docker_image.sh` in the `scripts` folder (without `sudo`).

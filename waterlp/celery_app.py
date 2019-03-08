@@ -5,7 +5,6 @@ from celery import Celery
 from kombu import Connection, Queue, Exchange
 
 from waterlp.utils.application import PNSubscribeCallback
-from waterlp.utils.rabbitmq import RabbitMQ
 
 from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub
@@ -23,13 +22,11 @@ broker_url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
     vhost=environ.get('RABBITMQ_VHOST', 'model-run'),
 )
 
-queue = Queue(queue_name, Exchange('tasks'), routing_key=queue_name)
-
 app = Celery(
     'tasks',
     broker=broker_url,
     include=['waterlp.tasks'],
-    # task_queues=[queue]
+    task_routes={'waterlp.tasks': {'queue': queue_name}}
 )
 
 app.config_from_object('waterlp.celeryconfig')
@@ -53,13 +50,13 @@ if __name__ == '__main__':
 
     pubnub.subscribe().channels(queue_name).execute()
     print(" [*] Subscribed to PubNub")
-    
+
     hostname = environ.get('RABBITMQ_HOST', 'localhost')
     run_key = environ.get('RUN_KEY')
     vhost = environ.get('RABBITMQ_VHOST', 'model-run')
     userid = environ.get('RABBITMQ_USERNAME', model_key)
     password = environ.get('RABBITMQ_PASSWORD', 'password')
-    
+
     url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
         username=userid,
         password=password,
@@ -81,7 +78,6 @@ if __name__ == '__main__':
     try:
 
         print(" [*] Starting Celery")
-        # app.start(['celery', '-A', 'waterlp.celery_app', 'worker', '-l', 'info'])
         app.start(['celery', 'worker', '-l', 'ERROR'])
 
     except KeyboardInterrupt:
