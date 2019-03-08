@@ -61,6 +61,8 @@ def run(**kwargs):
     # TODO: can probably pass these directly, since we now have them...
     for key, value in env.items():
         os.environ[key] = value
+    for key in kwargs:
+        setattr(args, key, kwargs[key])
     print(' [x] Running "{}" with {}'.format(args.run_name, args))
 
     RunLog = RunLogger(name='waterlp', app_name=args.app_name, run_name=args.run_name, logs_dir=logs_dir,
@@ -273,7 +275,7 @@ def run_scenario(supersubscenario, args, verbose=False):
     # elif args.message_protocol == 'ably':
     #     reporter = AblyReporter(args, post_reporter=post_reporter)
     elif args.message_protocol == 'pubnub':
-        reporter = PubNubReporter(args, post_reporter=post_reporter)
+        reporter = PubNubReporter(args, pub_key=args.publish_key, post_reporter=post_reporter)
 
     if reporter:
         reporter.updater = system.scenario.update_payload

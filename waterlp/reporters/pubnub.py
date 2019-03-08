@@ -4,15 +4,14 @@ from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub
 
 
-class PubNubReporter(object):
+class PubNubReporter(object, pub_key=None):
 
-    def __init__(self, args, post_reporter=None):
+    def __init__(self, args, pub_key=None, post_reporter=None):
         self.args = args
         self.post_reporter = post_reporter
         self.updater = None
 
         sub_key = environ.get('PUBNUB_SUBSCRIBE_KEY')
-        pub_key = environ.get('PUBNUB_PUBLISH_KEY')
 
         if pub_key and sub_key:
             pnconfig = PNConfiguration()

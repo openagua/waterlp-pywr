@@ -44,7 +44,6 @@ These are described, with a specific example Docker run command and fuller seque
 
 Several environment variables are needed:
 
-* `AWS_S3_BUCKET`: The root AWS S3 bucket where input/output files are stored
 * `AWS_ACCESS_KEY_ID`: The AWS access key ID for S3 access
 * `AWS_SECRET_ACCESS_KEY`: The AWS secret access key for S3 access
 * `RABBITMQ_HOST`: The host for listening for new tasks

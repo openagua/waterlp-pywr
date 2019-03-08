@@ -78,6 +78,7 @@ class WaterSystem(object):
                  session=None, reporter=None, scenario=None):
 
         self.storage = network.layout.get('storage')
+        self.bucket_name = args.aws_s3_bucket
 
         # Both of these are now converted to cubic meters (per time step)
         self.SECOND_TO_DAY = 60 * 60 * 24  # convert to million ft^3/day
@@ -213,9 +214,8 @@ class WaterSystem(object):
         network_storage = self.conn.network.layout.get('storage')
         if network_storage.location == 'AmazonS3':
             network_folder = self.conn.network.layout.get('storage', {}).get('folder')
-            bucket_name = os.environ.get('AWS_S3_BUCKET')
 
-            settings['network_files_path'] = bucket_name and network_folder and 's3://{}/{}'.format(bucket_name,
+            settings['network_files_path'] = self.bucket_name and network_folder and 's3://{}/{}'.format(bucket_name,
                                                                                                     network_folder)
 
         self.evaluator = Evaluator(self.conn, settings=settings, date_format=self.date_format)
@@ -878,7 +878,7 @@ class WaterSystem(object):
             log_dir=self.log_dir,
             filename=filename
         )
-        s3.put_object(Body=content, Bucket=os.environ.get('AWS_S3_BUCKET'), Key=key)
+        s3.put_object(Body=content, Bucket=self.bucket_name, Key=key)
 
     def save_results(self, error=False):
 
