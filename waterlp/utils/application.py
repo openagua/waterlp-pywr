@@ -1,5 +1,4 @@
 import json
-from os import environ
 
 from pubnub.callbacks import SubscribeCallback
 from pubnub.enums import PNOperationType, PNStatusCategory

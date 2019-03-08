@@ -7,7 +7,7 @@ from copy import copy
 from ast import literal_eval
 from os import environ
 
-from .celery_app import app
+from waterlp import app
 from celery.exceptions import Ignore
 
 from waterlp.reporters.post import Reporter as PostReporter
