@@ -5,6 +5,7 @@ from datetime import datetime
 from itertools import product
 from copy import copy
 from ast import literal_eval
+from os import environ
 
 from .celery_app import app
 from celery.exceptions import Ignore
@@ -32,6 +33,14 @@ class Object(object):
             setattr(self, key, values[key])
 
 
+run_key = environ.get('RUN_KEY')
+model_key = environ['MODEL_KEY']
+queue_name = 'model-{}'.format(model_key)
+if run_key:
+    queue_name += '-{}'.format(run_key)
+
+
+# @app.task(name='openagua.run', queue=queue_name, exchange='tasks', routing_key=queue_name)
 @app.task(name='openagua.run')
 def run(**kwargs):
     """This is for starting the model with Celery"""
@@ -345,7 +354,9 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             system.update_boundary_conditions(ts, ts + system.foresight_periods, step='main')
 
             # 3. RUN THE MODEL ONE TIME STEP
+
             results = system.step()
+
             if i == 0 and args.debug and results:
                 stats = results.to_dataframe()
                 content = stats.to_csv()
