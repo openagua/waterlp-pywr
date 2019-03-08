@@ -4,7 +4,7 @@ from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub
 
 
-class PubNubReporter(object, pub_key=None):
+class PubNubReporter(object):
 
     def __init__(self, args, pub_key=None, post_reporter=None):
         self.args = args
