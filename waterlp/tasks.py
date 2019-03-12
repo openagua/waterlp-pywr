@@ -9,8 +9,8 @@ from os import environ
 
 from waterlp import app
 from celery.exceptions import Ignore
-from celery import group
 
+from waterlp.reporters.redis import local_redis
 from waterlp.reporters.post import Reporter as PostReporter
 from waterlp.reporters.ably import AblyReporter
 from waterlp.reporters.pubnub import PubNubReporter
@@ -21,7 +21,6 @@ from waterlp.connection import connection
 from waterlp.logger import create_logger
 from waterlp.models.system import WaterSystem
 from waterlp.scenario_class import Scenario
-from waterlp.reporters.redis import local_redis
 from waterlp.utils.scenarios import create_subscenarios
 from waterlp.utils.application import ProcessState
 

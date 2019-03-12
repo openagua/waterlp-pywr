@@ -2,9 +2,9 @@ import getpass
 from os import path, environ, makedirs
 from shutil import rmtree
 from celery import Celery
-from kombu import Connection, Queue
 
 from waterlp.utils.application import PNSubscribeCallback
+from waterlp.reporters.redis import local_redis as redis
 
 from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub
@@ -22,15 +22,22 @@ broker_url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
     vhost=environ.get('RABBITMQ_VHOST', 'model-run'),
 )
 
+redis_host = environ.get('REDIS_HOST', 'localhost')
+
+# test redis
+redis.set('test', 1)
+
 app = Celery(
     'tasks',
     broker=broker_url,
+    # backend='redis://{}'.format(redis_host),
     include=['waterlp.tasks'],
 )
 
 app.conf.update(
     task_default_queue=queue_name,
     task_default_exchange='tasks',
+    broker_heartbeat=10,
     accept_content=['json', 'pickle'],
     result_expires=3600
 )
@@ -51,15 +58,3 @@ pubnub.add_listener(PNSubscribeCallback())
 pubnub.subscribe().channels(queue_name).execute()
 print(" [*] Subscribed to PubNub")
 
-hostname = environ.get('RABBITMQ_HOST', 'localhost')
-run_key = environ.get('RUN_KEY')
-vhost = environ.get('RABBITMQ_VHOST', 'model-run')
-userid = environ.get('RABBITMQ_USERNAME', model_key)
-password = environ.get('RABBITMQ_PASSWORD', 'password')
-
-url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
-    username=userid,
-    password=password,
-    hostname=hostname,
-    vhost=vhost,
-)

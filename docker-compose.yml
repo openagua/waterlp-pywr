@@ -1,0 +1,18 @@
+version: '2'
+services:
+    redis:
+        hostname: redis
+        image: redis:latest
+        ports:
+          - "6379:6379"
+        restart: always
+
+    worker:
+        build: .
+        command: [celery, worker, --concurrency=5, --loglevel=INFO]
+        volumes:
+            - .:/app
+        links:
+            - redis
+        depends_on:
+            - redis

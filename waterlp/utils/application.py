@@ -82,7 +82,7 @@ class PNSubscribeCallback(SubscribeCallback):
             sid = data.message.get('sid')
             if sid:
                 local_redis.set(sid, state)
-                local_redis.expire(sid, 3600*24)
+                local_redis.expire(sid, 3600 * 24)
                 print(sid, state)
 
         return
