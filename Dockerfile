@@ -13,4 +13,4 @@ WORKDIR /user/local/model
 
 RUN pip3 install -r requirements.txt
 
-CMD ["python3", "run_debug.py"]
+CMD ["python3", "run.py"]

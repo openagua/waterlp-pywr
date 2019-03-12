@@ -9,7 +9,7 @@ services:
 
     worker:
         build: .
-        command: [celery, worker, --concurrency=5, --loglevel=INFO]
+        command: [celery, worker, --concurrency=10, --loglevel=WARNING]
         volumes:
             - .:/app
         links:
