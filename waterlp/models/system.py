@@ -215,8 +215,9 @@ class WaterSystem(object):
         if network_storage.location == 'AmazonS3':
             network_folder = self.conn.network.layout.get('storage', {}).get('folder')
 
-            settings['network_files_path'] = self.bucket_name and network_folder and 's3://{}/{}'.format(bucket_name,
-                                                                                                    network_folder)
+            settings['network_files_path'] = self.bucket_name and network_folder and 's3://{}/{}'.format(
+                self.bucket_name,
+                network_folder)
 
         self.evaluator = Evaluator(self.conn, settings=settings, date_format=self.date_format)
         self.dates = self.evaluator.dates
@@ -789,7 +790,7 @@ class WaterSystem(object):
         type_name = self.resources[(resource_type, resource_id)]['type']['name']
         attr_id = self.conn.attr_id_lookup.get((resource_type, resource_id, attr_name))
         if not attr_id:
-            return # this is not an actual attribute in the model
+            return  # this is not an actual attribute in the model
         tattr_idx = (resource_type, type_name, attr_id)
         param = self.params.get(tattr_idx, {})
 

@@ -9,9 +9,10 @@ from os import environ
 
 from waterlp import app
 from celery.exceptions import Ignore
+from celery import group
 
 from waterlp.reporters.post import Reporter as PostReporter
-# from waterlp.reporters.ably import AblyReporter
+from waterlp.reporters.ably import AblyReporter
 from waterlp.reporters.pubnub import PubNubReporter
 from waterlp.reporters.screen import ScreenReporter
 from waterlp.logger import RunLogger
@@ -41,7 +42,6 @@ if run_key:
     queue_name += '-{}'.format(run_key)
 
 
-# @app.task(name='openagua.run', queue=queue_name, exchange='tasks', routing_key=queue_name)
 @app.task(name='openagua.run')
 def run(**kwargs):
     """This is for starting the model with Celery"""
@@ -127,10 +127,11 @@ def run_scenarios(args, networklog):
 
     args.starttime = datetime.now()  # args.start_time is iso-formatted, but this is still probably redundant
 
-    print("================================================")
-    print("STARTING RUN")
-    print("Start time: {}".format(args.starttime.isoformat()))
-    print("================================================")
+    if args.debug:
+        print("================================================")
+        print("STARTING RUN")
+        print("Start time: {}".format(args.starttime.isoformat()))
+        print("================================================")
 
     # ======================
     # connect to data server
@@ -171,8 +172,13 @@ def run_scenarios(args, networklog):
 
         sid = '-'.join([args.unique_id] + [str(s) for s in set(scenario_ids)])
 
-        if local_redis.get(sid) == ProcessState.CANCELED:
-            raise Ignore
+        try:
+            if local_redis.get(sid) == ProcessState.CANCELED:
+                print('Canceled by user')
+                raise Ignore
+        except Exception as err:
+            print(err)
+            raise
 
         # create the scenario class
         scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
@@ -181,9 +187,6 @@ def run_scenarios(args, networklog):
         networklog.info(msg="Model started")
         if post_reporter:
             post_reporter.start(is_main_reporter=(args.message_protocol == 'post'), **start_payload)
-
-        else:
-            print("Model started")
 
         # create the system class
         # TODO: pass resources as dictionaries instead for quicker lookup
@@ -230,7 +233,7 @@ def run_scenarios(args, networklog):
                 # m = "Unknown error."
                 m = str(err)
             message = "Error: Failed to prepare system.\n\n{}".format(m)
-
+            print(message)
             if post_reporter:
                 payload = scenario.update_payload(action='error', message=message)
                 post_reporter.report(**payload)
@@ -255,11 +258,14 @@ def run_scenarios(args, networklog):
 
 @app.task
 def run_scenario(supersubscenario, args, verbose=False):
+    print("RUNNING SCENARIO: {}".format(print(supersubscenario)))
+
     global current_step, total_steps
 
     # Check OA to see if the model request is still valid
     sid = supersubscenario.get('sid')
     if local_redis.get(sid) == ProcessState.CANCELED:
+        print("Canceled by user.")
         raise Ignore
 
     system = supersubscenario.get('system')
@@ -272,11 +278,10 @@ def run_scenario(supersubscenario, args, verbose=False):
     elif args.message_protocol == 'post':
         post_reporter.is_main_reporter = True
         reporter = post_reporter
-    # elif args.message_protocol == 'ably':
-    #     reporter = AblyReporter(args, post_reporter=post_reporter)
+    elif args.message_protocol == 'ably':
+        reporter = AblyReporter(args, post_reporter=post_reporter)
     elif args.message_protocol == 'pubnub':
-        reporter = PubNubReporter(args, pub_key=args.publish_key, post_reporter=post_reporter)
-
+        reporter = PubNubReporter(args, publish_key=args.publish_key, post_reporter=post_reporter)
     if reporter:
         reporter.updater = system.scenario.update_payload
         system.scenario.reporter = reporter
@@ -328,7 +333,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     while i < n:
 
         if local_redis.get(sid) == ProcessState.CANCELED:
-            raise Exception('Canceled by user.')
+            print("Canceled by user.")
+            raise Ignore
 
         ts = runs[i]
         current_step = i + 1

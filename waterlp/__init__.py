@@ -26,11 +26,16 @@ app = Celery(
     'tasks',
     broker=broker_url,
     include=['waterlp.tasks'],
-    task_routes={'waterlp.tasks': {'queue': queue_name}}
 )
 
-app.config_from_object('waterlp.celeryconfig')
+app.conf.update(
+    task_default_queue=queue_name,
+    task_default_exchange='tasks',
+    accept_content=['json', 'pickle'],
+    result_expires=3600
+)
 
+# app.config_from_object('waterlp.celeryconfig')
 app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
 logs_dir = '{}/logs'.format(app_dir)
 if path.exists(app_dir):
@@ -58,14 +63,3 @@ url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
     hostname=hostname,
     vhost=vhost,
 )
-
-with Connection(url) as conn:
-    with conn.channel() as channel:
-        task_queue = Queue(
-            name=queue_name,
-            durable=True,
-            auto_delete=False,
-            message_ttl=3600,
-        )
-        task_queue.declare(True, channel)
-        print(" [*] Task queue created")

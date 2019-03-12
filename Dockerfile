@@ -3,6 +3,8 @@ FROM ubuntu:latest
 MAINTAINER David Rheinheimer "drheinheimer@umass.edu"
 
 RUN apt-get update && apt-get install -y build-essential
+RUN apt-get install -y redis-server
+RUN systemctl restart redis
 RUN apt-get install -y glpk-utils
 RUN apt-get install -y python3 python3-pip python3-dev
 RUN python3 -m pip install --upgrade pip

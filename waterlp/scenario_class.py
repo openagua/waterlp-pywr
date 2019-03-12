@@ -130,7 +130,7 @@ class Scenario(object):
                 })
             elif action == 'done':
                 payload.update({
-                    # 'progress': self.finished / self.total_steps * 100,
+                    'progress': 100,
                     'saved': 100,
                 })
         return payload
