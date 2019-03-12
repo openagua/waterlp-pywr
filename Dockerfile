@@ -8,8 +8,8 @@ RUN apt-get install -y glpk-utils
 RUN apt-get install -y python3 python3-pip python3-dev
 RUN python3 -m pip install --upgrade pip
 
-ADD . /user/local/model
-WORKDIR /user/local/model
+ADD . /code
+WORKDIR /code
 
 RUN pip3 install -r requirements.txt
 

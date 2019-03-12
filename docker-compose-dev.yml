@@ -8,14 +8,15 @@ services:
         restart: always
 
     worker:
-        image: waterlp-pywr:latest
+#        image: waterlp-pywr:latest
+        build: .
         env_file: variables.env
         command: [celery, worker, --app=waterlp.app, --concurrency=10, --loglevel=WARNING]
         volumes:
             - .:/app
             - /etc/localtime:/etc/localtime
-        links:
-            - redis
-#        network_mode: host
+#        links:
+#            - redis
+        network_mode: host
         depends_on:
             - redis
