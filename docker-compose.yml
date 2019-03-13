@@ -2,7 +2,7 @@ version: '3'
 services:
 
     redis:
-        hostname: waterlp-redis
+        hostname: redis
         image: redis:latest
         ports:
           - "6379:6379"
@@ -16,6 +16,6 @@ services:
             - .:/app
             - /etc/localtime:/etc/localtime
         links:
-            - waterlp-redis:redis
+            - redis
         depends_on:
             - redis
