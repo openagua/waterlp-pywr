@@ -1,4 +1,5 @@
 import hashlib
+from os import environ
 import json
 import sys
 import traceback
@@ -6,10 +7,14 @@ from copy import copy
 from calendar import isleap
 import pandas
 import numpy
-import pendulum
+# import boto3
+# from io import BytesIO
+
+from ast import literal_eval
 
 # for use within user functions
 from math import log, isnan
+import random
 
 EMPTY_VALUES = {
     'timeseries': {},
@@ -21,13 +26,7 @@ EMPTY_VALUES = {
 
 
 def get_scenarios_data(conn, scenario_ids, **kwargs):
-    evaluator = Evaluator(
-        conn,
-        settings=kwargs.get('settings'),
-        data_type=kwargs.get('data_type'),
-        nblocks=kwargs.get('nblocks'),
-        date_format='%Y-%m-%d %H:%M:%S',
-    )
+    evaluator = Evaluator(conn, **kwargs)
 
     scenarios_data = []
     for i, scenario_id in enumerate(scenario_ids):
@@ -56,7 +55,9 @@ def get_scenario_data(evaluator, **kwargs):
     kwargs['scenario_id'] = [evaluator.scenario_id]
     for_eval = kwargs.get('for_eval', False)
     res_attr_data = evaluator.conn.get_res_attr_data(**kwargs)
+    data_type = kwargs.get('data_type')
     eval_value = None
+    error = 0
     if res_attr_data and 'errorcode' not in res_attr_data:
         res_attr_data = res_attr_data[0]
 
@@ -76,14 +77,12 @@ def get_scenario_data(evaluator, **kwargs):
             )
         except:
             eval_value = None
+            error = 1
+
         if eval_value is None:
-            if evaluator.data_type:
-                eval_value = evaluator.default_timeseries
-            else:
-                evaluator.data_type = res_attr_data.value.type
-                evaluator.default_timeseries = make_default_value(
-                    data_type=evaluator.data_type, dates=evaluator.dates_as_string, nblocks=1)
-                eval_value = evaluator.default_timeseries
+            eval_value = make_default_value(data_type=data_type, dates=evaluator.dates)
+        elif type(eval_value) in [int, float] and 'timeseries' in data_type:
+            eval_value = make_default_value(data_type=data_type, dates=evaluator.dates, default_value=eval_value)
 
         metadata = json.loads(res_attr_data['value']['metadata'])
         metadata['use_function'] = metadata.get('use_function', 'N')
@@ -93,15 +92,14 @@ def get_scenario_data(evaluator, **kwargs):
         scenario_data = {
             'data': res_attr_data,
             'eval_value': eval_value,
-            'error': 0
+            'error': error
         }
 
     else:
-        data_type = kwargs.get('data_type')
         if data_type in ['timeseries', 'periodic timeseries']:
-            eval_value = evaluator.default_timeseries
+            eval_value = make_default_value(data_type, evaluator.dates)
         elif data_type == 'array':
-            eval_value = evaluator.default_array
+            eval_value = make_default_value(data_type)
         else:
             eval_value = None
 
@@ -112,10 +110,10 @@ def get_scenario_data(evaluator, **kwargs):
     return scenario_data
 
 
-def empty_data_timeseries(dates, nblocks=1, flavor='json', date_format='iso'):
+def empty_data_timeseries(dates, nblocks=1, flavor='json', date_format='iso', default_value=0):
     try:
         timeseries = None
-        values = [0] * len(dates)
+        values = [default_value] * len(dates)
         if flavor == 'json':
             vals = {str(b): values for b in range(nblocks or 1)}
             if date_format == 'iso':
@@ -209,100 +207,129 @@ def eval_array(array, flavor=None):
         raise Exception(errormsg)
 
 
-def parse_function(s, name, argnames, modules=()):
+def parse_function(user_code, name, argnames, modules=()):
     '''Parse a function into usable Python'''
+
+    # first, parse code
     spaces = '\n    '
-
-    # modules
-    modules = spaces.join('import {}'.format(m) for m in modules)
-
-    # getargs (these pass to self.GET)
-    kwargs = spaces.join(['{arg} = kwargs.get("{arg}")'.format(arg=arg) for arg in argnames])
-
-    # first cut
-    s = s.rstrip()
+    s = user_code.rstrip()
     lines = s.split('\n')
     if 'return ' not in lines[-1]:
         lines[-1] = 'return ' + lines[-1]
     code = spaces.join(lines)
 
+    try:
+        eval1 = eval(user_code)
+        eval2 = eval(user_code)
+        if user_code and eval1 == eval2:
+            return '''def {name}():{spaces}{code}'''.format(spaces=spaces, code=code, name=name)
+    except:
+        pass
+
+    # modules
+    # modules = spaces.join('import {}'.format(m) for m in modules if m in user_code)
+
+    # getargs (these pass to self.GET)
+    kwargs = spaces.join(['{arg} = kwargs.get("{arg}")'.format(arg=arg) for arg in argnames if arg in user_code])
+
     # final function
-    func = '''def {name}(self, **kwargs):{spaces}{modules}{spaces}{kwargs}{spaces}{code}''' \
-        .format(spaces=spaces, modules=modules, kwargs=kwargs, code=code, name=name)
+    func = '''def {name}(self, **kwargs):{spaces}{spaces}{kwargs}{spaces}{code}''' \
+        .format(spaces=spaces, kwargs=kwargs, code=code, name=name)
 
     return func
 
 
-def make_dates(settings, date_format=True, data_type='timeseries'):
+def get_water_year(date, start_date):
+    if date.month < start_date.month:
+        return date.year
+    else:
+        return date.year + 1
+
+
+def make_dates(data_type='timeseries', **kwargs):
     # TODO: Make this more advanced
-    timestep = settings.get('time_step') or settings.get('timestep')
-    start = settings.get('start_time') or settings.get('start')
-    end = settings.get('end_time') or settings.get('end')
+
+    span = kwargs.get('span') or kwargs.get('timestep') or kwargs.get('time_step')
+    start = kwargs.get('start') or kwargs.get('start_time')
+    end = kwargs.get('end') or kwargs.get('end_time')
 
     dates = []
 
-    if start and end and timestep:
-        start_date = pendulum.parse(start)
-        end_date = pendulum.parse(end)
-        timestep = timestep.lower()
+    if start and end and span:
+        start_date = pandas.to_datetime(start)
+        end_date = pandas.to_datetime(end)
+        span = span.lower()
+        i = -1
 
         if data_type == 'periodic timeseries':
-            start_date = pendulum.datetime(9998, 1, 1)
-            end_date = pendulum.datetime(9998, 12, 31, 23, 59)
+            start_date = pandas.datetime(9998, 1, 1)
+            end_date = pandas.datetime(9998, 12, 31, 23, 59)
 
-        period = pendulum.period(start_date, end_date)
-
-        periodic_timesteps = []
-        if timestep == 'day':
-            dates = list(period.range("days"))
-            pt = 0
-            for i, date in enumerate(dates):
+        if span == 'day':
+            periodic_timestep = 0
+            for date in pandas.date_range(start=start, end=end, freq='D'):
+                i += 1
+                date.index = i
+                date.timestep = i + 1
                 if (date.month, date.day) == (start_date.month, start_date.day):
-                    pt = 1
+                    periodic_timestep = 1
                 else:
-                    pt += 1
-                periodic_timesteps.append(pt)
-        elif timestep == 'week':
-            year = start_date.year
-            dates = []
+                    periodic_timestep += 1
+                date.periodic_timestep = periodic_timestep
+                date.water_year = get_water_year(date, start_date)
+                date.string = date.isoformat(' ')
+                dates.append(date)
+        elif span == 'week':
             for i in range(52 * (end_date.year - start_date.year)):
                 if i == 0:
                     date = start_date
                 else:
-                    date = dates[-1].add(days=7)
+                    date = dates[-1] + pandas.DateOffset(days=7)
+                date.index = i
+                date.timestep = i + 1
                 if isleap(date.year) and date.month == 3 and date.day == 4:
-                    date = date.add(days=1)
+                    date += pandas.DateOffset(days=1)
                 if date.month == 12 and date.day == 31:
-                    date = date.add(days=1)
+                    date += pandas.DateOffset(days=1)
+                date.periodic_timestep = i % 52 + 1
+                date.string = date.isoformat(' ')
+                date.water_year = get_water_year(date, start_date)
                 dates.append(date)
-                periodic_timesteps.append(i % 52 + 1)
-        elif timestep == 'month':
-            dates = list(period.range("months"))
-            periodic_timesteps = [i % 12 + 1 for i, date in enumerate(dates)]
-        elif timestep == 'thricemonthly':
-            dates = []
-            for dt in period.range('months'):
-                d1 = pendulum.datetime(dt.year, dt.month, 10)
-                d2 = pendulum.datetime(dt.year, dt.month, 20)
-                d3 = dt.last_of('month')
+        elif span == 'month':
+            for date in pandas.date_range(start=start, end=end, freq='M'):
+                i += 1
+                date.index = i
+                date.timestep = i + 1
+                date.periodic_timestep = i % 12 + 1
+                date.string = date.isoformat(' ')
+                date.water_year = get_water_year(date, start_date)
+                dates.append(date)
+        elif span == 'thricemonthly':
+            for date in pandas.date_range(start=start, end=end, freq='M'):
+                d1 = pandas.datetime(date.year, date.month, 10)
+                d2 = pandas.datetime(date.year, date.month, 20)
+                d3 = pandas.datetime(date.year, date.month, date.daysinmonth)
+
                 dates.extend([d1, d2, d3])
-            periodic_timesteps = [i % 36 + 1 for i, date in enumerate(dates)]
+            for date in dates:
+                i += 1
+                date.index = i
+                date.timestep = i + 1
+                date.periodic_timestep = i % 36 + 1
+                date.string = date.isoformat(' ')
+                date.water_year = get_water_year(date, start_date)
 
-        dates_as_string = [date.to_datetime_string() for date in dates]
-
-        return dates_as_string, dates, periodic_timesteps
-
-    else:
-        return None, None, None
+    return dates
 
 
-def make_default_value(data_type='timeseries', dates=None, nblocks=1, flavor='json', date_format='iso'):
+def make_default_value(data_type='timeseries', dates=None, nblocks=1, default_value=0, flavor='json',
+                       date_format='iso'):
     try:
         if data_type == 'timeseries':
-            default_eval_value = empty_data_timeseries(dates, nblocks=nblocks, flavor=flavor, date_format=date_format)
+            default_eval_value = empty_data_timeseries(dates, nblocks=nblocks, flavor=flavor, date_format=date_format,
+                                                       default_value=default_value)
         elif data_type == 'periodic timeseries':
-            dates = [pendulum.parse(d) for d in dates]
-            periodic_dates = [d.replace(year=9999).to_datetime_string() for d in dates if (d - dates[0]).in_years() < 1]
+            periodic_dates = [d.replace(year=1678).to_datetime_string() for d in dates if (d - dates[0]).in_years() < 1]
             default_eval_value = empty_data_timeseries(periodic_dates, nblocks=nblocks)
         elif data_type == 'array':
             default_eval_value = '[[],[]]'
@@ -337,21 +364,33 @@ class namespace:
 
 
 class Evaluator:
-    def __init__(self, conn=None, scenario_id=None, settings=None, data_type='timeseries', nblocks=1,
-                 date_format='%Y-%m-%d %H:%M:%S'):
+    def __init__(self, conn=None, scenario_id=None, time_settings=None, data_type='timeseries', nblocks=1,
+                 files_path=None, date_format='%Y-%m-%d %H:%M:%S', **kwargs):
         self.conn = conn
-        self.dates_as_string, self.dates, self.periodic_timesteps = make_dates(settings, data_type=data_type)
+
+        self.dates = []
+        self.dates_as_string = []
+        self.start_date = None
+        self.end_date = None
+
+        if data_type in [None, 'timeseries', 'periodic timeseries']:
+            self.dates = make_dates(data_type=data_type, **time_settings)
+            self.dates_as_string = [d.string for d in self.dates]
+            self.start_date = self.dates[0]
+            self.end_date = self.dates[-1]
+
         self.date_format = date_format
-        self.start_date = self.dates[0]
-        self.end_date = self.dates[-1]
+        self.tsi = None
+        self.tsf = None
         self.scenario_id = scenario_id
         self.data_type = data_type
-        self.default_timeseries = make_default_value(data_type=data_type, dates=self.dates_as_string, nblocks=nblocks)
+        self.default_timeseries = None
         self.default_array = make_default_value('array')
         self.resource_scenarios = {}
         self.external = {}
 
-        self.network_files_path = settings.get('network_files_path')
+        self.bucket = environ.get('AWS_S3_BUCKET')
+        self.files_path = files_path
 
         self.namespace = namespace
 
@@ -367,7 +406,7 @@ class Evaluator:
             'water_year',
             'flavor',
         ]
-        self.modules = ['pandas', 'isnan', 'log']
+        self.modules = ['pandas', 'numpy', 'isnan', 'log', 'random', 'math']
 
         self.calculators = {}
 
@@ -435,7 +474,10 @@ class Evaluator:
                     print(err)
                     raise
                 if result is None and data_type == 'timeseries':
-                    result = self.default_timeseries
+                    if self.default_timeseries:
+                        result = self.default_timeseries
+                    else:
+                        self.default_timeseries = make_default_value(data_type=data_type, dates=self.dates)
                     if flavor == 'pandas':
                         result = pandas.read_json(result)
                     elif flavor == 'native':
@@ -481,6 +523,29 @@ class Evaluator:
         except:
             raise
 
+    def update_hashstore(self, hashkey, data_type, date, value):
+        if data_type == 'timeseries':
+            date_as_string = date.string
+            if hashkey not in self.hashstore:
+                self.hashstore[hashkey] = {}
+            if type(value) == dict and date_as_string in value:
+                self.hashstore[hashkey][date_as_string] = value.get(date_as_string)
+            elif type(value) in [pandas.DataFrame, pandas.Series]:
+                # TODO: add to documentation that returning a dataframe or series from a function
+                # will only be done once
+                if type(value.index) == pandas.DatetimeIndex:
+                    value.index = value.index.strftime(self.date_format)
+                value = value.to_dict()
+                self.hashstore[hashkey] = value
+                return False
+            else:
+                self.hashstore[hashkey][date_as_string] = value
+        else:
+            self.hashstore[hashkey] = value
+            return False
+
+        return True
+
     def eval_function(self, code_string, depth=0, parentkey=None, flavor=None, data_type=None, flatten=False,
                       tsidx=None, has_blocks=False, date_format=None, for_eval=False):
 
@@ -500,8 +565,6 @@ class Evaluator:
         :return:
         """
 
-        result = None
-        date_format = date_format or self.date_format
         hashkey = hashlib.sha224(str.encode(code_string + str(data_type))).hexdigest()
 
         # check if we already know about this function so we don't
@@ -511,7 +574,7 @@ class Evaluator:
                 # create the string defining the wrapper function
                 # Note: functions can't start with a number so pre-pend "func_"
                 func_name = "func_{}".format(hashkey)
-                func = parse_function(code_string, name=func_name, argnames=self.argnames)
+                func = parse_function(code_string, name=func_name, argnames=self.argnames, modules=self.modules)
                 # TODO : exec is unsafe
                 exec(func, globals())
                 setattr(self.namespace, hashkey, eval(func_name))
@@ -530,58 +593,68 @@ class Evaluator:
             stored_value = self.hashstore.get(hashkey)
 
             if stored_value is not None:
-                if data_type != 'timeseries':
+                if data_type != 'timeseries' or type(stored_value) in [float, int]:
                     return self.hashstore[hashkey]
 
-            # get dates to be evaluated
-            if tsidx is not None:
-                dates = self.dates[tsidx:tsidx + 1]
+            # MAIN ENTRY POINT TO FUNCTION
+            f = getattr(self.namespace, hashkey)
+
+            if data_type in ['scalar', 'array', 'descriptor']:
+                value = f()
+                self.hashstore[hashkey] = value
+
             else:
-                tsi = getattr(self, 'tsi', None)
-                tsf = getattr(self, 'tsf', None)
-                if tsi is not None and tsf is not None:
-                    dates = self.dates[tsi:tsf]  # used when running model
-                else:
+
+                # get dates to be evaluated
+                if tsidx is not None:
+                    dates = self.dates[tsidx:tsidx + 1]
+                elif for_eval:
                     dates = self.dates  # used when evaluating a function in app
-
-            for date in dates:
-                date_as_string = date.to_datetime_string()
-                timestep = self.dates_as_string.index(date_as_string) + 1
-                periodic_timestep = self.periodic_timesteps[timestep - 1]
-                water_year = date.year + (0 if date.month < self.start_date.month else 1)
-                value = getattr(self.namespace, hashkey)(
-                    self,
-                    hashkey=hashkey,
-                    date=date,
-                    timestep=timestep,
-                    periodic_timestep=periodic_timestep,
-                    start_date=self.start_date,
-                    end_date=self.end_date,
-                    water_year=water_year,
-                    depth=depth + 1,
-                    parentkey=parentkey,
-                )
-
-                if data_type == 'timeseries':
-                    if hashkey not in self.hashstore:
-                        self.hashstore[hashkey] = {}
-                    if type(value) == dict and date_as_string in value:
-                        self.hashstore[hashkey][date_as_string] = value.get(date_as_string)
-                    elif type(value) in [pandas.DataFrame, pandas.Series]:
-                        # TODO: add to documentation that returning a dataframe or series from a function
-                        # will only be done once
-                        if type(value.index) == pandas.DatetimeIndex:
-                            value.index = value.index.strftime(date_format)
-                        value = value.to_dict()
-                        self.hashstore[hashkey] = value
-                        break
-                    else:
-                        self.hashstore[hashkey][date_as_string] = value
                 else:
-                    self.hashstore[hashkey] = value
-                    break
+                    if self.tsi is not None and self.tsf is not None:
+                        dates = self.dates[self.tsi:self.tsf]  # used when running model
+                    else:
+                        raise Exception("Error evaluating function. Invalid dates.")
+
+                kwargs = {}
+                might_be_scalar = True
+                for i, date in enumerate(dates):
+                    try:
+                        # if stored_value and date_as_string in stored_value:
+                        #     value = stored_value[date_as_string]
+                        # else:
+                        if might_be_scalar and 'self' not in f.__code__.co_varnames:
+                            value = f()
+                            if type(value) in [float, int]:
+                                data_type = 'scalar'
+                        else:
+                            might_be_scalar = False
+                            if tsidx:
+                                timestep = tsidx + 1
+                            elif for_eval:
+                                timestep = i + 1
+                            else:
+                                timestep = self.tsi + 1
+                            kwargs.update(
+                                timestep=date.timestep,
+                                periodic_timestep=date.periodic_timestep,
+                                water_year=date.water_year
+                            )
+                            value = f(self, hashkey=hashkey, date=date, depth=depth + 1, parentkey=parentkey, **kwargs)
+                        if self.update_hashstore(hashkey, data_type, date, value) is False:
+                            break
+                    except:
+                        if for_eval:
+                            break
+                        else:
+                            raise
 
             values = self.hashstore[hashkey]
+
+            if type(values) in [int, float]:
+                data_type = 'scalar'
+            elif type(values) in [str]:
+                data_type = 'descriptor'
 
             if data_type in ['timeseries', 'periodic timeseries']:
                 if type(values) == list:
@@ -665,19 +738,26 @@ class Evaluator:
 
         try:
 
+            stored_result = self.store.get(key)
+
+            offset = kwargs.get('offset')
+            start = kwargs.get('start')
+            end = kwargs.get('end')
+
+            if stored_result is not None:
+                if type(stored_result) in [int, float]:
+                    return stored_result
+
             hashkey = kwargs.get('hashkey')
             parentkey = kwargs.get('parentkey')
             date = kwargs.get('date')
-            date_as_string = date.to_datetime_string()
             depth = kwargs.get('depth')
-            offset = kwargs.get('offset')
             timestep = kwargs.get('timestep')
             flatten = kwargs.get('flatten', True)
-            start = kwargs.get('start')
-            end = kwargs.get('end')
             agg = kwargs.get('agg', 'mean')
             default = kwargs.get('default')
 
+            # EXPENSIVE!!
             parts = key.split('/')
             if len(parts) == 3:
                 resource_type, resource_id, attr_id = parts
@@ -697,8 +777,9 @@ class Evaluator:
                 return default
 
             # store results from get function
-            if key not in self.store:
+            if stored_result is None:
                 self.store[key] = EMPTY_VALUES[rs_value['type']]
+                stored_result = self.store[key]
 
             # calculate offset
             offset_date_as_string = None
@@ -710,15 +791,15 @@ class Evaluator:
             if offset_timestep < 1 or offset_timestep > len(self.dates):
                 pass
             elif not (start or end):  # TODO: change this when start/end are added to key
-                stored_result = None
-                if rs_value['type'] == 'timeseries':
+                # stored_result = self.store[key]
+                if rs_value['type'] in ['scalar', 'array', 'descriptor'] or type(stored_result) in [int, float]:
+                    pass
+                elif rs_value['type'] == 'timeseries':
                     offset_date = self.dates[offset_timestep - 1]
-                    offset_date_as_string = offset_date.to_datetime_string()
-
-                    stored_result = self.store[key].get(offset_date_as_string)
-
-                elif rs_value['type'] in ['scalar', 'array', 'descriptor']:
-                    stored_result = self.store[key]
+                    offset_date_as_string = offset_date.isoformat(' ')
+                    stored_result = stored_result.get(offset_date_as_string)
+                else:
+                    pass
 
                 if stored_result is not None:
                     return stored_result
@@ -757,24 +838,26 @@ class Evaluator:
 
             result = value
 
+            if type(result) in [float, int]:
+                data_type = 'scalar'
+            else:
+                data_type = rs_value['type']
+
             if self.data_type == 'timeseries':
-                if rs_value.type == 'timeseries':
+                if data_type == 'timeseries':
 
                     if start or end:
                         start = start or date
                         end = end or date
 
                         if type(start) == str:
-                            start = pendulum.parse(start)
+                            start = pandas.to_datetime(start)
                         if type(end) == str:
-                            end = pendulum.parse(end)
+                            end = pandas.to_datetime(end)
 
                         if key != parentkey:
-                            start_as_string = start.to_datetime_string()
-                            end_as_string = end.to_datetime_string()
-                            # start_as_string = start.to_iso8601_string().replace('Z', '')
-                            # end_as_string = end.to_iso8601_string().replace('Z', '')
-                            # Note annoying mismatch between Pandas and Pendulum iso8601 implementations
+                            start_as_string = start.isoformat(' ')
+                            end_as_string = end.isoformat(' ')
                             if default_flavor == 'pandas':
                                 result = value.loc[start_as_string:end_as_string].agg(agg)[0]
                             elif default_flavor == 'native':
@@ -814,7 +897,7 @@ class Evaluator:
                                 else:
                                     result = value.get(offset_date_as_string)
 
-                elif rs_value.type == 'array':
+                elif data_type == 'array':
 
                     result = self.store.get(key)
 
@@ -825,11 +908,11 @@ class Evaluator:
                         else:
                             result = value
 
-                elif rs_value.type in ['scalar', 'descriptor']:
+                elif data_type in ['scalar', 'descriptor']:
                     result = value
 
             # TODO: double check if this is actually needed for timeseries...
-            if rs_value.type in ['timeseries', 'periodic timeseries']:
+            if data_type in ['timeseries', 'periodic timeseries']:
                 if offset_date_as_string:
                     # TODO: account for the fact that key doesn't include start/end
                     # start/end should be added to key...
@@ -840,42 +923,50 @@ class Evaluator:
                     else:
                         self.store[key][offset_date_as_string] = result
                 else:
-                    pass # Error?
+                    pass  # Error?
             else:
                 self.store[key] = result
 
             return result if result is not None else default
 
-        except:
+        except Exception as err:
+            print(err)
             res_info = key
             raise Exception("Error getting data for key {}".format(res_info))
 
     def read_csv(self, path, **kwargs):
 
-        date = kwargs.pop('date')
-        date_as_string = date.to_datetime_string()
-        hashkey = kwargs.pop('hashkey')
-        fullpath = '{}/{}'.format(self.network_files_path, path)
+        for arg in self.argnames:
+            kwargs.pop(arg, None)
 
-        data = self.external.get(fullpath)
+        fullpath = '{}/{}'.format(self.files_path, path)
+
+        externalkey = hashlib.md5(str.encode(path + str(kwargs))).hexdigest()
+        # externalkey = path + str(kwargs)
+        data = self.external.get(externalkey)
 
         if data is None:
-            for arg in self.argnames:
-                exec("{arg} = kwargs.pop('{arg}', None)".format(arg=arg))
 
-            index_col = kwargs.pop('index_col', 0)
-            parse_dates = kwargs.pop('parse_dates', True)
+            kwargs['index_col'] = kwargs.pop('index_col', 0)
+            kwargs['parse_dates'] = kwargs.pop('parse_dates', True)
+            kwargs['infer_datetime_format'] = kwargs.pop('infer_datetime_format', True)
             flavor = kwargs.pop('flavor', 'dataframe')
-            fill_method = kwargs.pop('fill_method', 'interpolate')
+            fill_method = kwargs.pop('fill_method', None)
             interp_method = kwargs.pop('interp_method', None)
 
-            df = pandas.read_csv(fullpath, index_col=index_col, parse_dates=parse_dates, **kwargs)
+            path = 's3://{}/{}'.format(self.bucket, fullpath)
+            df = pandas.read_csv(path, **kwargs)
 
-            interp_args = {}
-            if fill_method == 'interpolate':
-                if interp_method in ['time', 'akima', 'quadratic']:
-                    interp_args['method'] = interp_method
-                df.interpolate(inplace=True, **interp_args)
+            # client = boto3.client('s3')
+            # obj = client.get_object(Bucket=self.bucket, Key=fullpath)
+            # df = pandas.read_csv(BytesIO(client.get_object(Bucket=self.bucket, Key=fullpath)['Body'].read()), **kwargs)
+
+            if fill_method:
+                interp_args = {}
+                if fill_method == 'interpolate':
+                    if interp_method in ['time', 'akima', 'quadratic']:
+                        interp_args['method'] = interp_method
+                    df.interpolate(inplace=True, **interp_args)
 
             if flavor == 'native':
                 data = df.to_dict()
@@ -884,7 +975,7 @@ class Evaluator:
             else:
                 data = df
 
-            self.external[fullpath] = data
+            self.external[externalkey] = data
 
         return data
 

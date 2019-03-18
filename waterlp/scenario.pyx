@@ -1,1 +1,0 @@
-from scenario_main import run_scenario

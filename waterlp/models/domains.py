@@ -152,7 +152,7 @@ class Hydropower(RiverDomainMixin, PiecewiseLink):
                 self.sublinks[0].max_flow = 0.0
                 self.sublinks[1].max_flow = value
             else:
-                self.sublinks[0].max_flow = min(self.sublinks[0].max_flow, value)
+                self.sublinks[0].max_flow = min(self.sublinks[0].max_flow, value) if value in [int, float] else value
                 self.sublinks[1].max_flow = max(value - self.sublinks[0].max_flow, 0.0)
 
         return locals()

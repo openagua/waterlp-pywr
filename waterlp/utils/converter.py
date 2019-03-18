@@ -1664,8 +1664,10 @@ units = [
 
 
 def convert(value, dimension, unit1, unit2):
-    dim_units = [dim for dim in units if dim['name'] == dimension]
+    if unit1 == unit2:
+        return value
 
+    dim_units = [dim for dim in units if dim['name'] == dimension]
     converted = None
 
     if dim_units:

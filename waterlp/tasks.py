@@ -7,7 +7,7 @@ from copy import copy
 from ast import literal_eval
 from os import environ
 
-from waterlp import app
+from waterlp.celery_app import app
 from celery.exceptions import Ignore
 
 from waterlp.reporters.redis import local_redis
@@ -77,6 +77,8 @@ def run(**kwargs):
 
 def run_model(args, logs_dir, **kwargs):
     # initialize log directories
+    if not args.log_dir:
+        args.log_dir = 'network-{}'.format(args.network_id)
     args.log_dir = os.path.join(logs_dir, args.log_dir)
 
     # specify scenarios log dir
@@ -338,22 +340,27 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         ts = runs[i]
         current_step = i + 1
 
-        if verbose:
-            print('current step: %s' % current_step)
+        # if verbose:
+        #     print('current step: %s' % current_step)
 
         #######################
         # CORE SCENARIO ROUTINE
         #######################
 
+        # 1. Update timesteps
+
+        # TODO: update time step scheme based on https://github.com/pywr/pywr/issues/688
         current_dates = system.dates[ts:ts + system.foresight_periods]
         current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
         step = (system.dates[ts] - system.dates[ts - 1]).days if ts else system.dates[0].day
-        # 1. Update timesteps
-        system.model.update_timesteps(
-            start=current_dates_as_string[0],
-            end=current_dates_as_string[-1],
-            step=step
-        )
+
+        if system.scenario.time_step != 'day':
+
+            system.model.update_timesteps(
+                start=current_dates_as_string[0],
+                end=current_dates_as_string[-1],
+                step=step
+            )
 
         try:
 

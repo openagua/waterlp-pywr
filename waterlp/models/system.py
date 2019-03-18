@@ -94,7 +94,7 @@ class WaterSystem(object):
         self.date_format = date_format
         self.storage_scale = 1
         self.storage_unit = 'hm^3'
-        self.initial_volumes = {}  # assume these are only for nodes
+        # self.initial_volumes = {}  # assume these are only for nodes
 
         self.scenarios = {s.name: s for s in all_scenarios}
         self.scenarios_by_id = {s.id: s for s in all_scenarios}
@@ -205,21 +205,21 @@ class WaterSystem(object):
     def initialize_time_steps(self):
         # initialize time steps and foresight periods
 
-        settings = {
-            'start_time': self.scenario.start_time,
-            'end_time': self.scenario.end_time,
-            'time_step': self.scenario.time_step,
+        time_settings = {
+            'start': self.scenario.start_time,
+            'end': self.scenario.end_time,
+            'span': self.scenario.time_step,
         }
 
         network_storage = self.conn.network.layout.get('storage')
+
         if network_storage.location == 'AmazonS3':
             network_folder = self.conn.network.layout.get('storage', {}).get('folder')
+            files_path = network_folder
+        else:
+            files_path = None
 
-            settings['network_files_path'] = self.bucket_name and network_folder and 's3://{}/{}'.format(
-                self.bucket_name,
-                network_folder)
-
-        self.evaluator = Evaluator(self.conn, settings=settings, date_format=self.date_format)
+        self.evaluator = Evaluator(self.conn, time_settings=time_settings, files_path=files_path, date_format=self.date_format)
         self.dates = self.evaluator.dates
         self.dates_as_string = self.evaluator.dates_as_string
 
@@ -259,6 +259,8 @@ class WaterSystem(object):
 
         nsubblocks = 1
         self.default_subblocks = list(range(nsubblocks))
+
+        N = len(self.dates)
 
         # collect source data
         for source_id in self.scenario.source_ids:
@@ -349,6 +351,7 @@ class WaterSystem(object):
 
                     type_name = self.resources[(resource_type, resource_id)]['type']['name']
                     tattr_idx = (resource_type, type_name, attr_id)
+                    res_attr_idx = (resource_type, resource_id, attr_id)
 
                     parentkey = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
 
@@ -365,7 +368,8 @@ class WaterSystem(object):
                                 has_blocks=has_blocks,
                                 date_format=self.date_format,
                                 flavor='native',
-                                parentkey=parentkey
+                                parentkey=parentkey,
+                                for_eval=True,
                             )
                     except:
                         raise
@@ -382,21 +386,19 @@ class WaterSystem(object):
                         except:
                             raise Exception("Could not convert scalar")
 
-                        if (type_name, tattr['attr_name']) in INITIAL_STORAGE_ATTRS:
-                            if tattr_idx not in self.initial_volumes:
-                                self.initial_volumes[tattr_idx] = {}
-                            self.initial_volumes[tattr_idx][resource_id] = value
+                        self.constants[res_attr_idx] = value
+                        # if (type_name, tattr['attr_name']) in INITIAL_STORAGE_ATTRS:
+                        #     # self.initial_volumes[res_attr_idx] = value
+                        #     self.constants[res_attr_idx] = value
+                        #
+                        # else:
+                        #     self.constants[res_attr_idx] = value
 
-                        else:
-                            if tattr_idx not in self.constants:
-                                self.constants[tattr_idx] = {}
-                            self.constants[tattr_idx][res_idx] = value
-
+                    elif type(value) in [int, float]:
+                        self.constants[res_attr_idx] = value
 
                     elif data_type == 'descriptor':  # this could change later
-                        if tattr_idx not in self.constants:
-                            self.constants[tattr_idx] = {}
-                        self.constants[tattr_idx][res_idx] = value
+                        self.constants[res_attr_idx] = value
 
                     elif data_type == 'timeseries':
                         values = value
@@ -408,19 +410,19 @@ class WaterSystem(object):
                                 if not function:  # if there is no function, this will be treated as no dataset
                                     continue
 
+                            use_function = len(values) < N
+
                             # routine to add blocks using quadratic values - this needs to be paired with a similar routine when updating boundary conditions
                             # if has_blocks:
                             #     values = add_subblocks(values, attr_name, self.default_subblocks)
 
-                            if tattr_idx not in self.variables:
-                                self.variables[tattr_idx] = {}
-
-                            self.variables[tattr_idx][res_idx] = {
+                            self.variables[res_attr_idx] = {
                                 'data_type': data_type,
                                 'values': values,
-                                'is_function': is_function,
-                                'function': function,
+                                'is_function': use_function and is_function,
+                                'function': use_function and function,
                                 'has_blocks': has_blocks,
+                                'is_ready': is_function and not use_function
                             }
                         except:
                             raise
@@ -465,17 +467,41 @@ class WaterSystem(object):
         step = self.dates[0].day
 
         # set up the time steps
-        start = current_dates_as_string[0]
-        end = current_dates_as_string[-1]
-        step = step
+        if self.scenario.time_step == 'day':
+            start = self.scenario.start_time
+            end = self.scenario.end_time
+            step = 1
+        else:
+            start = current_dates_as_string[0]
+            end = current_dates_as_string[-1]
+            step = step
 
-        # set up the initial volumes
-        initial_volumes = {}
-        for tattr_idx, values in self.initial_volumes.items():
-            scale = self.params[tattr_idx]['scale']
-            unit = self.params[tattr_idx]['unit']
-            for resource_id, value in values.items():
-                initial_volumes[resource_id] = convert(value * scale, 'Volume', unit, 'hm^3')
+        # set up initial values
+        constants = {}
+        variables = {}
+
+        def convert_values(source, dest):
+            for res_attr_idx in list(source):
+                resource_type, resource_id, attr_id = res_attr_idx
+                type_name = self.resources[(resource_type, resource_id)]['type']['name']
+                param = self.params[(resource_type, type_name, attr_id)]
+                scale = param['scale']
+                unit = param['unit']
+                dimension = param['dimension']
+                value = source.pop(res_attr_idx)
+                if dimension == 'Volumetric flow rate':
+                    val = convert(value * scale, dimension, unit, 'hm^3 day^-1')
+                elif dimension == 'Volume':
+                    val = convert(value * scale, dimension, unit, 'hm^3')
+                else:
+                    val = value
+                dest[res_attr_idx] = val
+
+        convert_values(self.constants, constants)
+
+        # for res_attr_idx in list(self.variables):
+        #     if self.variables[res_attr_idx].get('is_ready'):
+        #         variables[res_attr_idx] = self.variables.pop(res_attr_idx)
 
         self.model = PywrModel(
             network=self.network,
@@ -483,7 +509,7 @@ class WaterSystem(object):
             start=start,
             end=end,
             step=step,
-            initial_volumes=initial_volumes
+            constants=constants
         )
 
     def prepare_params(self):
@@ -553,46 +579,40 @@ class WaterSystem(object):
             for key, variation in variation_set['variations'].items():
                 (resource_type, resource_id, attr_id) = key
                 tattr = self.conn.tattrs[key]
-
                 attr_id = tattr['attr_id']
-                type_name = self.resources[(resource_type, resource_id)]['type']['name']
-                tattr_idx = (resource_type, type_name, attr_id)
-
-                idx = (resource_type, resource_id)
 
                 # at this point, timeseries have not been assigned to variables, so these are mutually exclusive
                 # the order here shouldn't matter
-                variable = self.constants.get(tattr_idx, {}).get(idx)
-                timeseries = self.variables.get(tattr_idx, {}).get(idx)
+                res_attr_idx = (resource_type, resource_id, attr_id)
+                variable = self.constants.get(res_attr_idx)
+                timeseries = self.variables.get(res_attr_idx)
                 if variable:
-                    self.constants[tattr_idx][idx] = perturb(self.constants[tattr_idx][idx], variation)
+                    self.constants[res_attr_idx] = perturb(self.constants[res_attr_idx], variation)
 
                 elif timeseries:
                     if not timeseries.get('function'):  # functions will be handled by the evaluator
-                        self.variables[tattr_idx][idx]['values'] = perturb(self.variables[tattr_idx][idx]['values'],
-                                                                           variation)
+                        self.variables[res_attr_idx]['values'] = perturb(self.variables[res_attr_idx]['values'],
+                                                                         variation)
 
                 else:  # we need to add the variable to account for the variation
                     data_type = tattr['data_type']
                     if data_type == 'scalar':
-                        if tattr_idx not in self.constants:
-                            self.constants[tattr_idx] = {}
-                        self.constants[tattr_idx][idx] = perturb(0, variation)
+                        self.constants[res_attr_idx] = perturb(0, variation)
                     elif data_type == 'timeseries':
 
-                        if tattr_idx not in self.constants:
-                            self.constants[tattr_idx] = {}
-                        self.variables[tattr_idx][idx] = {
+                        self.variables[res_attr_idx] = {
                             'values': perturb(self.evaluator.default_timeseries.copy(), variation),
                             'dimension': tattr['dimension']
                         }
 
-    def update_boundary_condition(self, res_idx, tattr_idx, dates_as_string, is_function=False, func=None, values=None,
+    def update_boundary_condition(self, res_attr_idx, dates_as_string, is_function=False, func=None, values=None,
                                   step='main', scope='store'):
 
         try:
-            resource_type, type_name, attr_id = tattr_idx
-            resource_type, resource_id = res_idx
+            resource_type, resource_id, attr_id = res_attr_idx
+            # TODO: get tattr_idx
+            type_name = self.resources[(resource_type, resource_id)]['type']['name']
+            tattr_idx = (resource_type, type_name, attr_id)
             param = self.params[tattr_idx]
             if scope == 'store' \
                     and (step == 'main' and param.intermediary
@@ -712,35 +732,33 @@ class WaterSystem(object):
         self.evaluator.tsf = tsf
 
         # 1. Update values in memory store
-        for tattr_idx, params in self.variables.items():
-            for res_idx, param in params.items():
-                self.update_boundary_condition(
-                    res_idx,
-                    tattr_idx,
-                    dates_as_string,
-                    values=param.get('values'),
-                    is_function=param.get('is_function'),
-                    func=param.get('function'),
-                    step=step,
-                    scope='store'
-                )
+        for res_attr_idx in self.variables:
+            param = self.variables[res_attr_idx]
+            self.update_boundary_condition(
+                res_attr_idx,
+                dates_as_string,
+                values=param.get('values'),
+                is_function=param.get('is_function'),
+                func=param.get('function'),
+                step=step,
+                scope='store'
+            )
 
         # 2. update Pyomo model
         if step == 'main':
             # for attr_name in self.valueParams + self.demandParams:
             self.model.updated = {}
-            for tattr_idx, params in self.variables.items():
-                for res_idx, param in params.items():
-                    self.update_boundary_condition(
-                        res_idx,
-                        tattr_idx,
-                        dates_as_string,
-                        values=param.get('values'),
-                        is_function=param.get('is_function'),
-                        func=param.get('function'),
-                        step=step,
-                        scope='model'
-                    )
+            for res_attr_idx in self.variables:
+                param = self.variables[res_attr_idx]
+                self.update_boundary_condition(
+                    res_attr_idx,
+                    dates_as_string,
+                    values=param.get('values'),
+                    is_function=param.get('is_function'),
+                    func=param.get('function'),
+                    step=step,
+                    scope='model'
+                )
 
     def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
 

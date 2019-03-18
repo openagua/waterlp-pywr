@@ -1,10 +1,11 @@
 import datetime
 import pandas
-from pywr.core import Model, Input, Output, Link, River, Storage, RiverGauge, Catchment, Timestepper
+from pywr.core import Model, Input, Output, Link, Timestepper
+from pywr.domains.river import River, Storage, RiverGauge, Catchment
+from pywr.parameters import ArrayIndexedParameter, DataFrameParameter, ConstantParameter
 
 from .domains import Hydropower, InstreamFlowRequirement
 
-# from pywr.parameters import (ArrayIndexedParameter, DataFrameParameter, ConstantParameter)
 # from pywr.recorders import (NumpyArrayNodeRecorder, NumpyArrayStorageRecorder)
 
 storage_types = {
@@ -32,16 +33,22 @@ link_types = {
 }
 
 
+def negative(value):
+    return -abs(value) if type(value) in [int, float] else value
+
+
 # create the model
 class PywrModel(object):
-    def __init__(self, network, template, start=None, end=None, step=None, initial_volumes=None, check_graph=False):
+    def __init__(self, network, template, start=None, end=None, step=None,
+                 constants=None, variables=None,
+                 check_graph=False):
 
         self.model = None
         self.storage = {}
         self.non_storage = {}
-        self.updated = {} # dictionary for debugging whether or not a param has been updated
+        self.updated = {}  # dictionary for debugging whether or not a param has been updated
 
-        self.create_model(network, template, initial_volumes=initial_volumes)
+        self.create_model(network, template, constants=constants, variables=variables)
 
         # check network graph
         if check_graph:
@@ -52,16 +59,25 @@ class PywrModel(object):
 
         self.setup(start=start, end=end, step=step)
 
-    def create_model(self, network, template, initial_volumes=None):
+    def create_model(self, network, template, constants=None, variables=None):
 
         model = Model(solver='glpk-edge')
 
         # -----------------GENERATE NETWORK STRUCTURE -----------------------
+        # ...and add initial parameter values
 
         output_ids = []
         input_ids = []
 
         non_storage_types = list(output_types.keys()) + list(input_types.keys()) + list(node_types.keys())
+
+        def add_value_to_node(res_attr_idx, type_name, attr_name):
+            value = constants.pop(res_attr_idx, None)
+            if value:
+                type_name = type_name.lower()
+                attr_name = attr_name.lower()
+                (resource_type, resource_id, attr_id) = res_attr_idx
+                self.update_param(resource_type, resource_id, type_name, attr_name, value=value)
 
         # create node dictionaries by name and id
         node_lookup = {}
@@ -79,6 +95,7 @@ class PywrModel(object):
                 'name': name,
                 'connect_in': 0,
                 'connect_out': 0,
+                'attributes': node['attributes']
             }
             if type_name in output_types:
                 output_ids.append(node['id'])
@@ -88,6 +105,7 @@ class PywrModel(object):
         # create link lookups and pywr links
         link_lookup = {}
         for link in network['links']:
+            residx = ('link', link['id'])
             name = '{} (link)'.format(link['name'])
             types = [t for t in link['types'] if t['template_id'] == template['id']]
             if not types:
@@ -117,7 +135,12 @@ class PywrModel(object):
                 raise Exception(msg)
 
             LinkType = link_types.get(type_name, Link)
-            self.non_storage[('link', link_id)] = LinkType(model, name=name)
+
+            self.non_storage[residx] = LinkType(model, name=name)
+
+            for ra in link['attributes']:
+                res_attr_idx = ('link', link['id'], ra['attr_id'])
+                add_value_to_node(res_attr_idx, type_name, ra['attr_name'])
 
         # Q/C
 
@@ -145,20 +168,20 @@ class PywrModel(object):
         # create pywr nodes dictionary with format ["name" = pywr type + 'name']
         # for storage and non storage
 
-        # TODO: change looping variable notation
         for node_id, node in node_lookup.items():
+            residx = ('node', node_id)
             type_name = node['type']
             name = node['name']
             connect_in = node.get('connect_in', 0)
             connect_out = node.get('connect_out', 0)
             if (type_name in storage_types or connect_out > 1) and type_name not in non_storage_types:
-                initial_volume = initial_volumes.get(node_id, 0.0) if initial_volumes is not None else 0.0
+                # initial_volume = initial_volumes.get(node_id, 0.0) if initial_volumes is not None else 0.0
                 self.storage[node_id] = Storage(
                     model,
                     name=name,
                     num_outputs=connect_in,
                     num_inputs=connect_out,
-                    initial_volume=initial_volume
+                    # initial_volume=initial_volume
                 )
                 if type_name not in storage_types:
                     self.storage[node_id].max_volume = 0.0
@@ -175,7 +198,15 @@ class PywrModel(object):
                 else:
                     NodeType = Link
 
-                self.non_storage[('node', node_id)] = NodeType(model, name=name)
+                self.non_storage[residx] = NodeType(model, name=name)
+
+            for ra in node['attributes']:
+                res_attr_idx = ('node', node_id, ra['attr_id'])
+                try:
+                    add_value_to_node(res_attr_idx, type_name, ra['attr_name'])
+                except Exception as err:
+                    print(err)
+                    raise
 
         # create network connections
         # must assign connection slots for storage
@@ -229,38 +260,40 @@ class PywrModel(object):
         res_idx = (resource_type, resource_id)
         attr_idx = (resource_type, resource_id, attr_name)
 
-        if (attr_idx) in self.updated:
-            return
+        # if attr_idx in self.updated:
+        #     return
 
-        self.updated[attr_idx] = True
+        # self.updated[attr_idx] = True
 
-        ta = (type_name, attr_name)
+        ta = (type_name.lower(), attr_name.lower())
 
         if ta == ('catchment', 'runoff'):
             self.non_storage[res_idx].flow = value
+        elif ta == ('reservoir', 'initial storage'):
+            self.storage[resource_id].initial_storage = value
         elif 'demand' in type_name:
             if attr_name == 'value':
-                self.non_storage[res_idx].cost = -value
+                self.non_storage[res_idx].cost = negative(value)
             elif attr_name == 'demand':
                 self.non_storage[res_idx].max_flow = value
         elif type_name == 'flow requirement':
             if attr_name == 'requirement':
                 self.non_storage[res_idx].mrf = value
             elif attr_name == 'violation cost':
-                self.non_storage[res_idx].mrf_cost = -value
+                self.non_storage[res_idx].mrf_cost = negative(value)
         if type_name == 'hydropower':
             if attr_name == 'water demand':
                 self.non_storage[res_idx].base_flow = value
             elif attr_name == 'base value':
-                self.non_storage[res_idx].base_cost = -value
+                self.non_storage[res_idx].base_cost = negative(value)
             elif attr_name == 'turbine capacity':
                 self.non_storage[res_idx].turbine_capacity = value
             elif attr_name == 'excess value':
-                self.non_storage[res_idx].excess_cost = -value
+                self.non_storage[res_idx].excess_cost = negative(value)
         elif attr_name == 'storage demand':
             self.storage[resource_id].max_volume = value
         elif attr_name == 'storage value':
-            self.storage[resource_id].cost = -value
+            self.storage[resource_id].cost = negative(value)
         elif attr_name == 'storage capacity':
             self.storage[resource_id].max_volume = value
         elif attr_name == 'inactive pool':
