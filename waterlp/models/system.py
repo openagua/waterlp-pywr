@@ -963,7 +963,7 @@ class WaterSystem(object):
                 attr_id = int(attr_id)
 
                 tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
-                if not tattr:
+                if not tattr or not tattr['properties'].get('save'):
                     continue
 
                 type_name = self.resources[(resource_type, resource_id)]['type']['name']
@@ -981,11 +981,15 @@ class WaterSystem(object):
                 attr_name = tattr['attr_name']
 
                 # define the dataset value
+                data_type = tattr['data_type']
                 try:
-                    if param.has_blocks and type(list(value.values())[0]) == dict:
-                        value = pd.DataFrame(value).to_json()
+                    if 'timeseries' in data_type:
+                        if param.has_blocks and type(list(value.values())[0]) == dict:
+                            value = pd.DataFrame(value).to_json()
+                        else:
+                            value = pd.DataFrame({0: value}).to_json()
                     else:
-                        value = pd.DataFrame({0: value}).to_json()
+                        value = str(value)
                 except:
                     print('Failed to prepare: {}'.format(attr_name))
                     continue

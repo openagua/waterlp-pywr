@@ -34,13 +34,6 @@ class Object(object):
             setattr(self, key, values[key])
 
 
-run_key = environ.get('RUN_KEY')
-model_key = environ['MODEL_KEY']
-queue_name = 'model-{}'.format(model_key)
-if run_key:
-    queue_name += '-{}'.format(run_key)
-
-
 @app.task(name='openagua.run')
 def run(**kwargs):
     """This is for starting the model with Celery"""

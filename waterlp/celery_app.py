@@ -10,7 +10,7 @@ from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub
 
 run_key = environ.get('RUN_KEY')
-model_key = environ['MODEL_KEY']
+model_key = environ.get('MODEL_KEY')
 queue_name = 'model-{}'.format(model_key)
 if run_key:
     queue_name += '-{}'.format(run_key)
@@ -58,4 +58,4 @@ if __name__ == '__main__':
     pubnub.subscribe().channels(queue_name).execute()
     print(" [*] Subscribed to PubNub")
 
-    app.start(['celery', 'worker', '-l', 'ERROR'])
+    app.start(['celery', 'worker', '-l', 'INFO'])

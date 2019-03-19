@@ -7,6 +7,7 @@ from copy import copy
 from calendar import isleap
 import pandas
 import numpy
+from pandas import Timestamp
 # import boto3
 # from io import BytesIO
 
@@ -239,87 +240,95 @@ def parse_function(user_code, name, argnames, modules=()):
     return func
 
 
-def get_water_year(date, start_date):
-    if date.month < start_date.month:
-        return date.year
-    else:
-        return date.year + 1
+class Timestep(object):
+    index = -1
+    periodic_timestep = 1
+
+    def __init__(self, date, start_date, span):
+        if date == start_date:
+            type(self).index = 0
+            type(self).periodic_timestep = 1
+        else:
+            type(self).index += 1
+        self.index = type(self).index
+        self.timestep = self.index + 1
+        self.date = date
+        self.date_as_string = date.isoformat(' ')
+
+        if start_date:
+            if date.month < start_date.month:
+                self.water_year = date.year
+            else:
+                self.water_year = date.year + 1
+
+        if span:
+            self.span = span
+            self.set_periodic_timestep(date, start_date, span)
+
+    def set_periodic_timestep(self, date, start_date, span):
+
+        if span == 'day':
+            if (date.month, date.day) == (start_date.month, start_date.day):
+                type(self).periodic_timestep = 1
+            else:
+                type(self).periodic_timestep += 1
+            self.periodic_timestep = type(self).periodic_timestep
+
+        elif span == 'week':
+            self.periodic_timestep = self.index % 52 + 1
+
+        elif span == 'month':
+            self.periodic_timestep = self.index % 12 + 1
+
+        elif span == 'thricemonthly':
+            self.periodic_timestep = self.index % 36 + 1
 
 
-def make_dates(data_type='timeseries', **kwargs):
+def make_timesteps(data_type='timeseries', **kwargs):
     # TODO: Make this more advanced
 
     span = kwargs.get('span') or kwargs.get('timestep') or kwargs.get('time_step')
     start = kwargs.get('start') or kwargs.get('start_time')
     end = kwargs.get('end') or kwargs.get('end_time')
 
-    dates = []
+    timesteps = []
 
     if start and end and span:
         start_date = pandas.to_datetime(start)
         end_date = pandas.to_datetime(end)
         span = span.lower()
-        i = -1
 
         if data_type == 'periodic timeseries':
             start_date = pandas.datetime(9998, 1, 1)
             end_date = pandas.datetime(9998, 12, 31, 23, 59)
 
         if span == 'day':
-            periodic_timestep = 0
-            for date in pandas.date_range(start=start, end=end, freq='D'):
-                i += 1
-                date.index = i
-                date.timestep = i + 1
-                if (date.month, date.day) == (start_date.month, start_date.day):
-                    periodic_timestep = 1
-                else:
-                    periodic_timestep += 1
-                date.periodic_timestep = periodic_timestep
-                date.water_year = get_water_year(date, start_date)
-                date.string = date.isoformat(' ')
-                dates.append(date)
+            timesteps = [Timestep(d, start_date, span) for d in pandas.date_range(start=start, end=end, freq='D')]
         elif span == 'week':
+            dates = []
             for i in range(52 * (end_date.year - start_date.year)):
                 if i == 0:
                     date = start_date
                 else:
                     date = dates[-1] + pandas.DateOffset(days=7)
-                date.index = i
-                date.timestep = i + 1
                 if isleap(date.year) and date.month == 3 and date.day == 4:
                     date += pandas.DateOffset(days=1)
                 if date.month == 12 and date.day == 31:
                     date += pandas.DateOffset(days=1)
-                date.periodic_timestep = i % 52 + 1
-                date.string = date.isoformat(' ')
-                date.water_year = get_water_year(date, start_date)
                 dates.append(date)
+            timesteps = [Timestep(date, start_date, 'week') for date in dates]
         elif span == 'month':
-            for date in pandas.date_range(start=start, end=end, freq='M'):
-                i += 1
-                date.index = i
-                date.timestep = i + 1
-                date.periodic_timestep = i % 12 + 1
-                date.string = date.isoformat(' ')
-                date.water_year = get_water_year(date, start_date)
-                dates.append(date)
+            timesteps = [Timestep(d, start_date, 'month') for d in pandas.date_range(start=start, end=end, freq='M')]
         elif span == 'thricemonthly':
+            dates = []
             for date in pandas.date_range(start=start, end=end, freq='M'):
                 d1 = pandas.datetime(date.year, date.month, 10)
                 d2 = pandas.datetime(date.year, date.month, 20)
                 d3 = pandas.datetime(date.year, date.month, date.daysinmonth)
-
                 dates.extend([d1, d2, d3])
-            for date in dates:
-                i += 1
-                date.index = i
-                date.timestep = i + 1
-                date.periodic_timestep = i % 36 + 1
-                date.string = date.isoformat(' ')
-                date.water_year = get_water_year(date, start_date)
+            timesteps = [Timestep(d, start_date, span) for d in dates]
 
-    return dates
+    return timesteps
 
 
 def make_default_value(data_type='timeseries', dates=None, nblocks=1, default_value=0, flavor='json',
@@ -370,14 +379,16 @@ class Evaluator:
 
         self.dates = []
         self.dates_as_string = []
+        self.timesteps = []
         self.start_date = None
         self.end_date = None
 
         if data_type in [None, 'timeseries', 'periodic timeseries']:
-            self.dates = make_dates(data_type=data_type, **time_settings)
-            self.dates_as_string = [d.string for d in self.dates]
-            self.start_date = self.dates[0]
-            self.end_date = self.dates[-1]
+            self.timesteps = make_timesteps(data_type=data_type, **time_settings)
+            self.dates = [t.date for t in self.timesteps]
+            self.dates_as_string = [t.date_as_string for t in self.timesteps]
+            self.start_date = self.dates[0].date
+            self.end_date = self.dates[-1].date
 
         self.date_format = date_format
         self.tsi = None
@@ -399,7 +410,6 @@ class Evaluator:
             'parentkey',
             'depth',
             'timestep',
-            'periodic_timestep',
             'date',
             'start_date',
             'end_date',
@@ -523,9 +533,8 @@ class Evaluator:
         except:
             raise
 
-    def update_hashstore(self, hashkey, data_type, date, value):
+    def update_hashstore(self, hashkey, data_type, date_as_string, value):
         if data_type == 'timeseries':
-            date_as_string = date.string
             if hashkey not in self.hashstore:
                 self.hashstore[hashkey] = {}
             if type(value) == dict and date_as_string in value:
@@ -585,7 +594,7 @@ class Evaluator:
                 print(err)
                 raise
 
-        timestep = None
+        i = -1
 
         try:
             # CORE EVALUATION ROUTINE
@@ -607,18 +616,19 @@ class Evaluator:
 
                 # get dates to be evaluated
                 if tsidx is not None:
-                    dates = self.dates[tsidx:tsidx + 1]
+                    timesteps = self.timesteps[tsidx:tsidx + 1]
                 elif for_eval:
-                    dates = self.dates  # used when evaluating a function in app
+                    timesteps = self.timesteps  # used when evaluating a function in app
                 else:
                     if self.tsi is not None and self.tsf is not None:
-                        dates = self.dates[self.tsi:self.tsf]  # used when running model
+                        timesteps = self.timesteps[self.tsi:self.tsf]  # used when running model
                     else:
                         raise Exception("Error evaluating function. Invalid dates.")
 
                 kwargs = {}
                 might_be_scalar = True
-                for i, date in enumerate(dates):
+                for timestep in timesteps:
+                    i += 1
                     try:
                         # if stored_value and date_as_string in stored_value:
                         #     value = stored_value[date_as_string]
@@ -629,19 +639,14 @@ class Evaluator:
                                 data_type = 'scalar'
                         else:
                             might_be_scalar = False
-                            if tsidx:
-                                timestep = tsidx + 1
-                            elif for_eval:
-                                timestep = i + 1
-                            else:
-                                timestep = self.tsi + 1
                             kwargs.update(
-                                timestep=date.timestep,
-                                periodic_timestep=date.periodic_timestep,
-                                water_year=date.water_year
+                                start_date=self.start_date,
+                                end_date=self.end_date,
+                                water_year=timestep.water_year,
+                                date=timestep.date
                             )
-                            value = f(self, hashkey=hashkey, date=date, depth=depth + 1, parentkey=parentkey, **kwargs)
-                        if self.update_hashstore(hashkey, data_type, date, value) is False:
+                            value = f(self, hashkey=hashkey, timestep=timestep, depth=depth + 1, parentkey=parentkey, **kwargs)
+                        if self.update_hashstore(hashkey, data_type, timestep.date_as_string, value) is False:
                             break
                     except:
                         if for_eval:
@@ -720,7 +725,7 @@ class Evaluator:
             line_number = traceback.extract_tb(tb)[-1][1]
             line_number -= 11
             errormsg = "%s at line %d: %s" % (err_class, line_number, detail)
-            if for_eval and timestep:
+            if for_eval and i > 0:
                 errormsg += '\n\nThis error was encountered after the first time step, and might not occur during a model run.'
             # if for_eval:
             #     raise EvalException(errormsg, 3)
@@ -786,7 +791,7 @@ class Evaluator:
             if offset:
                 offset_timestep = self.dates.index(date) + offset + 1
             else:
-                offset_timestep = timestep
+                offset_timestep = timestep.timestep
 
             if offset_timestep < 1 or offset_timestep > len(self.dates):
                 pass
@@ -825,7 +830,7 @@ class Evaluator:
                         depth=depth,
                         parentkey=key,
                         has_blocks=has_blocks,
-                        tsidx=timestep - 1,  # convert from user timestep to python timestep
+                        tsidx=timestep.timestep - 1,  # convert from user timestep to python timestep
                         data_type=tattr.data_type,  # NOTE: the type attribute data type overrides the actual value type
                         date_format=self.date_format
                     )
