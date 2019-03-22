@@ -270,7 +270,7 @@ class PywrModel(object):
         if ta == ('catchment', 'runoff'):
             self.non_storage[res_idx].flow = value
         elif ta == ('reservoir', 'initial storage'):
-            self.storage[resource_id].initial_storage = value
+            self.storage[resource_id].initial_volume = value
         elif 'demand' in type_name:
             if attr_name == 'value':
                 self.non_storage[res_idx].cost = negative(value)

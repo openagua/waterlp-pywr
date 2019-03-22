@@ -8,8 +8,9 @@ from calendar import isleap
 import pandas
 import numpy
 from pandas import Timestamp
-# import boto3
-# from io import BytesIO
+import boto3
+from io import BytesIO
+from datetime import datetime
 
 from ast import literal_eval
 
@@ -223,7 +224,7 @@ def parse_function(user_code, name, argnames, modules=()):
         eval1 = eval(user_code)
         eval2 = eval(user_code)
         if user_code and eval1 == eval2:
-            return '''def {name}():{spaces}{code}'''.format(spaces=spaces, code=code, name=name)
+            return '''def {name}(self):{spaces}{code}'''.format(spaces=spaces, code=code, name=name)
     except:
         pass
 
@@ -253,6 +254,9 @@ class Timestep(object):
         self.index = type(self).index
         self.timestep = self.index + 1
         self.date = date
+        self.year = date.year
+        self.month = date.month
+        self.day = date.day
         self.date_as_string = date.isoformat(' ')
 
         if start_date:
@@ -609,23 +613,23 @@ class Evaluator:
             f = getattr(self.namespace, hashkey)
 
             if data_type in ['scalar', 'array', 'descriptor']:
-                value = f()
+                value = f(self)
                 self.hashstore[hashkey] = value
 
             else:
 
                 # get dates to be evaluated
-                if tsidx is not None:
-                    timesteps = self.timesteps[tsidx:tsidx + 1]
-                elif for_eval:
-                    timesteps = self.timesteps  # used when evaluating a function in app
-                else:
-                    if self.tsi is not None and self.tsf is not None:
-                        timesteps = self.timesteps[self.tsi:self.tsf]  # used when running model
-                    else:
-                        raise Exception("Error evaluating function. Invalid dates.")
+                # if tsidx is not None:
+                #     timesteps = self.timesteps[tsidx:tsidx + 1]
+                # elif for_eval:
+                #     timesteps = self.timesteps  # used when evaluating a function in app
+                # else:
+                #     if self.tsi is not None and self.tsf is not None:
+                #         timesteps = self.timesteps[self.tsi:self.tsf]  # used when running model
+                #     else:
+                #         raise Exception("Error evaluating function. Invalid dates.")
+                timesteps = self.timesteps
 
-                kwargs = {}
                 might_be_scalar = True
                 for timestep in timesteps:
                     i += 1
@@ -633,19 +637,13 @@ class Evaluator:
                         # if stored_value and date_as_string in stored_value:
                         #     value = stored_value[date_as_string]
                         # else:
-                        if might_be_scalar and 'self' not in f.__code__.co_varnames:
-                            value = f()
+                        if might_be_scalar and 'kwargs' not in f.__code__.co_varnames:
+                            value = f(self)
                             if type(value) in [float, int]:
                                 data_type = 'scalar'
                         else:
                             might_be_scalar = False
-                            kwargs.update(
-                                start_date=self.start_date,
-                                end_date=self.end_date,
-                                water_year=timestep.water_year,
-                                date=timestep.date
-                            )
-                            value = f(self, hashkey=hashkey, timestep=timestep, depth=depth + 1, parentkey=parentkey, **kwargs)
+                            value = f(self, timestep=timestep, depth=depth + 1, parentkey=parentkey)
                         if self.update_hashstore(hashkey, data_type, timestep.date_as_string, value) is False:
                             break
                     except:
@@ -745,83 +743,96 @@ class Evaluator:
 
             stored_result = self.store.get(key)
 
-            offset = kwargs.get('offset')
-            start = kwargs.get('start')
-            end = kwargs.get('end')
-
             if stored_result is not None:
-                if type(stored_result) in [int, float]:
+                if type(stored_result) in [int, float, str, list]:
                     return stored_result
 
-            hashkey = kwargs.get('hashkey')
             parentkey = kwargs.get('parentkey')
             date = kwargs.get('date')
             depth = kwargs.get('depth')
             timestep = kwargs.get('timestep')
             flatten = kwargs.get('flatten', True)
-            agg = kwargs.get('agg', 'mean')
             default = kwargs.get('default')
+
+            result = None
+            value = None
+            start = None
+            end = None
+            offset_date_as_string = None
 
             # EXPENSIVE!!
             parts = key.split('/')
             if len(parts) == 3:
                 resource_type, resource_id, attr_id = parts
-                network_id = None
+                network_id = 0
             else:
                 network_id, resource_type, resource_id, attr_id = parts
-                network_id = int(resource_id)
-                # network_id is not used yet - this is for future connections with other networks
             resource_id = int(resource_id)
             attr_id = int(attr_id)
 
-            result = None
-            value = None
+            rs_value = self.resource_scenarios.get(key)
+            if rs_value is None:
 
-            rs_value = self.rs_values.get((resource_type, resource_id, attr_id))
+                res_attr_data = self.conn.get_res_attr_data(
+                    network_id=network_id,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    scenario_id=[self.scenario_id],
+                    attr_id=attr_id
+                )
+                if res_attr_data:
+                    rs_value = res_attr_data[0].get('value')
+                    self.resource_scenarios[key] = rs_value
+
             if rs_value is None:
                 return default
+
+            data_type = rs_value['type']
 
             # store results from get function
             if stored_result is None:
                 self.store[key] = EMPTY_VALUES[rs_value['type']]
                 stored_result = self.store[key]
 
-            # calculate offset
-            offset_date_as_string = None
-            if offset:
-                offset_timestep = self.dates.index(date) + offset + 1
-            else:
-                offset_timestep = timestep.timestep
+            if 'timeseries' in data_type and timestep:
 
-            if offset_timestep < 1 or offset_timestep > len(self.dates):
-                pass
-            elif not (start or end):  # TODO: change this when start/end are added to key
-                # stored_result = self.store[key]
-                if rs_value['type'] in ['scalar', 'array', 'descriptor'] or type(stored_result) in [int, float]:
-                    pass
-                elif rs_value['type'] == 'timeseries':
-                    offset_date = self.dates[offset_timestep - 1]
-                    offset_date_as_string = offset_date.isoformat(' ')
-                    stored_result = stored_result.get(offset_date_as_string)
+                offset = kwargs.get('offset')
+                start = kwargs.get('start')
+                end = kwargs.get('end')
+
+                # calculate offset
+                offset_date_as_string = None
+                if offset:
+                    offset_timestep = self.dates.index(date) + offset + 1
+                    if offset_timestep < 1 or offset_timestep > len(self.dates):
+                        raise Exception("Invalid offset")
                 else:
-                    pass
+                    offset_timestep = timestep.timestep
 
-                if stored_result is not None:
-                    return stored_result
+                if not (start or end):
+                    if data_type in ['scalar', 'array', 'descriptor'] \
+                            or type(stored_result) in [int, float, str, list]:
+                        pass
+                    elif data_type == 'timeseries':
+                        offset_date_as_string = self.dates_as_string[offset_timestep - 1]
+                        stored_result = stored_result.get(offset_date_as_string)
+                    else:
+                        pass
+
+                    if stored_result is not None:
+                        return stored_result
 
             default_flavor = None
-            if rs_value.type == 'timeseries':
+            if data_type == 'timeseries':
                 default_flavor = 'native'
-            elif rs_value.type == 'array':
+            elif data_type == 'array':
                 default_flavor = 'native'
             flavor = kwargs.get('flavor', default_flavor)
 
             tattr = self.conn.tattrs[(resource_type, resource_id, attr_id)]
             has_blocks = tattr['properties'].get('has_blocks')
 
-            # need to evaluate the data anew only as needed
-            # tracking parent key prevents stack overflow
-            if key != parentkey:
+            if key != parentkey:  # tracking parent key prevents stack overflows
                 if rs_value is not None and rs_value['value'] is not None and (not result or start or end):
                     eval_data = self.eval_data(
                         value=rs_value,
@@ -830,9 +841,8 @@ class Evaluator:
                         depth=depth,
                         parentkey=key,
                         has_blocks=has_blocks,
-                        tsidx=timestep.timestep - 1,  # convert from user timestep to python timestep
-                        data_type=tattr.data_type,  # NOTE: the type attribute data type overrides the actual value type
-                        date_format=self.date_format
+                        tsidx=timestep and timestep.timestep - 1,  # convert from user timestep to python timestep
+                        data_type=data_type,
                     )
                     self.store[key] = eval_data
                     value = eval_data
@@ -845,15 +855,13 @@ class Evaluator:
 
             if type(result) in [float, int]:
                 data_type = 'scalar'
-            else:
-                data_type = rs_value['type']
 
             if self.data_type == 'timeseries':
                 if data_type == 'timeseries':
 
                     if start or end:
-                        start = start or date
-                        end = end or date
+                        start = start or timestep.date
+                        end = end or timestep.date
 
                         if type(start) == str:
                             start = pandas.to_datetime(start)
@@ -863,6 +871,7 @@ class Evaluator:
                         if key != parentkey:
                             start_as_string = start.isoformat(' ')
                             end_as_string = end.isoformat(' ')
+                            agg = kwargs.get('agg', 'mean')
                             if default_flavor == 'pandas':
                                 result = value.loc[start_as_string:end_as_string].agg(agg)[0]
                             elif default_flavor == 'native':
@@ -881,11 +890,10 @@ class Evaluator:
                     elif offset_date_as_string:
 
                         if key == parentkey:
-                            # is the result already available from a parent get result? or...
                             result = self.store.get(key, {}).get(offset_date_as_string)
                             if result is None:
-                                # ...from the top-level function?
-                                result = self.hashstore[hashkey][offset_date_as_string]
+                                raise Exception(
+                                    "No result found for this variable for date {}".format(offset_date_as_string))
 
                         else:
                             if flavor == 'pandas':
@@ -941,13 +949,7 @@ class Evaluator:
 
     def read_csv(self, path, **kwargs):
 
-        for arg in self.argnames:
-            kwargs.pop(arg, None)
-
-        fullpath = '{}/{}'.format(self.files_path, path)
-
-        externalkey = hashlib.md5(str.encode(path + str(kwargs))).hexdigest()
-        # externalkey = path + str(kwargs)
+        externalkey = path + str(kwargs)
         data = self.external.get(externalkey)
 
         if data is None:
@@ -959,12 +961,12 @@ class Evaluator:
             fill_method = kwargs.pop('fill_method', None)
             interp_method = kwargs.pop('interp_method', None)
 
-            path = 's3://{}/{}'.format(self.bucket, fullpath)
+            path = 's3://{}/{}/{}'.format(self.bucket, self.files_path, path)
             df = pandas.read_csv(path, **kwargs)
 
             # client = boto3.client('s3')
             # obj = client.get_object(Bucket=self.bucket, Key=fullpath)
-            # df = pandas.read_csv(BytesIO(client.get_object(Bucket=self.bucket, Key=fullpath)['Body'].read()), **kwargs)
+            # df = pandas.read_csv(BytesIO(obj['Body'].read()), **kwargs)
 
             if fill_method:
                 interp_args = {}

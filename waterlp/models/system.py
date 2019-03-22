@@ -3,7 +3,7 @@ import json
 from attrdict import AttrDict
 import pandas as pd
 import boto3
-import pendulum
+from datetime import datetime as dt
 
 from waterlp.models.pywr import PywrModel
 from waterlp.models.evaluator import Evaluator
@@ -219,7 +219,8 @@ class WaterSystem(object):
         else:
             files_path = None
 
-        self.evaluator = Evaluator(self.conn, time_settings=time_settings, files_path=files_path, date_format=self.date_format)
+        self.evaluator = Evaluator(self.conn, time_settings=time_settings, files_path=files_path,
+                                   date_format=self.date_format)
         self.dates = self.evaluator.dates
         self.dates_as_string = self.evaluator.dates_as_string
 
@@ -252,7 +253,6 @@ class WaterSystem(object):
         tsf = self.foresight_periods
 
         self.evaluator.block_params = self.block_params
-        self.evaluator.rs_values = {}  # to store raw resource attribute values
 
         self.evaluator.tsi = tsi
         self.evaluator.tsf = tsf
@@ -285,7 +285,8 @@ class WaterSystem(object):
                     resource_type = 'network'
                     resource_id = self.network.id
 
-                self.evaluator.rs_values[(resource_type, resource_id, rs.attr_id)] = rs.value
+                key = '{}/{}/{}'.format(resource_type, resource_id, rs.attr_id)
+                self.evaluator.resource_scenarios[key] = rs.value
 
         # evaluate source data
         for source_id in self.scenario.source_ids:
@@ -563,10 +564,16 @@ class WaterSystem(object):
         for i, variation_set in enumerate(variation_sets):
             vs = []
             for (resource_type, resource_id, attr_id), value in variation_set['variations'].items():
+
+                tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
+                resource_name = self.resources.get((resource_type, resource_id), {}).get('name', 'unknown resource')
+
                 vs.append({
                     'resource_type': resource_type,
                     'resource_id': resource_id,
+                    'resource_name': resource_name,
                     'attr_id': attr_id,
+                    'attr_name': tattr['attr_name'],
                     'variation': value
                 })
             scenario_type = 'option' if i == 0 else 'scenario'
@@ -846,16 +853,17 @@ class WaterSystem(object):
     def store_value(self, resource_type, resource_id, attr_id, timestamp, val, has_blocks=False):
 
         # add new resource scenario if it doesn't exist
-        key = (resource_type, resource_id, attr_id)
+        # key = (resource_type, resource_id, attr_id)
+        key = '{}/{}/{}'.format(resource_type, resource_id, attr_id)
         try:
-            if key not in self.evaluator.rs_values:
-                tattr = self.conn.tattrs.get(key)
+            if key not in self.evaluator.resource_scenarios:
+                tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
                 if not tattr:
                     # This is because the model assigns all resource attribute possibilities to all resources of like type
                     # In practice this shouldn't make a difference, but may result in a model larger than desired
                     # TODO: correct this
                     return
-                self.evaluator.rs_values[key] = {
+                self.evaluator.resource_scenarios[key] = {
                     'type': tattr['data_type'],
                     'unit': tattr['unit'],
                     'dimension': tattr['dimension'],
@@ -904,49 +912,18 @@ class WaterSystem(object):
         if self.scenario.reporter:
             self.scenario.reporter.report(action='save', saved=0)
 
-        if self.args.destination == 'source':
+        self.scenario.scenario_id = self.scenario.result_scenario['id']
+
+        if self.scenario.destination == 'source':
             self.save_results_to_source()
-        elif self.args.destination == 'local':
-            self.save_results_to_local()
-        elif self.args.destination == 'aws_s3':
+        elif self.scenario.destination == 's3':
             self.save_results_to_s3()
+        else:
+            self.save_results_to_local()
 
     def save_results_to_source(self):
 
-        result_scenario = self.scenarios.get(self.scenario.name)
-        # if result_scenario and result_scenario.id not in self.scenario.source_ids:
-
-        # self.conn.call('purge_scenario', {'scenario_id': result_scenario.id})
-        # TODO: double check this routine. The result scenario should be re-used, so that any favorite can refer to the same scenario ID
-        # mod_date = mktime(dt.utcnow().timetuple())
-        mod_date = pendulum.now().to_iso8601_string()
-        if not result_scenario or result_scenario.id in self.scenario.source_ids:
-            result_scenario = self.conn.call('add_scenario',
-                                             {'network_id': self.network.id, 'scen': {
-                                                 'id': None,
-                                                 'name': self.scenario.name,
-                                                 # 'cr_date': mod_date,
-                                                 'description': '',
-                                                 'network_id': self.network.id,
-                                                 'layout': {
-                                                     'class': 'results', 'sources': self.scenario.base_ids,
-                                                     'tags': self.scenario.tags,
-                                                     'run': self.args.run_name,
-                                                     'modified_date': mod_date,
-                                                     'modified_by': self.args.user_id
-                                                 }
-                                             }})
-        else:
-            result_scenario['layout'].update({
-                'modified_date': mod_date,
-                'modified_by': self.args.user_id,
-            })
-
-            result = self.conn.call('update_scenario', {
-                'scen': result_scenario,
-            })
-
-        self.scenario.scenario_id = result_scenario['id']
+        result_scenario = self.scenario.result_scenario
 
         # save variable data to database
         res_scens = []
@@ -973,8 +950,8 @@ class WaterSystem(object):
                     continue  # it's probably an internal variable/parameter
 
                 # create the resource scenario (dataset attached to a specific resource attribute)
-                res_idx = (resource_type, resource_id, attr_id)
-                res_attr_id = self.conn.res_attr_lookup.get(res_idx)
+                res_attr_idx = (resource_type, resource_id, attr_id)
+                res_attr_id = self.conn.res_attr_lookup.get(res_attr_idx)
                 if not res_attr_id:
                     continue
                 resource_name = self.conn.raid_to_res_name[res_attr_id]
@@ -1023,6 +1000,10 @@ class WaterSystem(object):
 
                 if mb > 10 or n % 100 == 0:
                     result_scenario['resourcescenarios'] = res_scens[:-1]
+                    result_scenario['layout'].update({
+                        'modified_date': dt.now().isoformat(' '),
+                        'modified_by': self.args.user_id
+                    })
                     resp = self.conn.dump_results(result_scenario)
                     if 'id' not in resp:
                         raise Exception('Error saving data')
@@ -1038,6 +1019,10 @@ class WaterSystem(object):
 
             # upload the last remaining resource scenarios
             result_scenario['resourcescenarios'] = res_scens
+            result_scenario['layout'].update({
+                'modified_date': dt.now().isoformat(' '),
+                'modified_by': self.args.user_id
+            })
             resp = self.conn.dump_results(result_scenario)
 
             self.scenario.result_scenario_id = result_scenario['id']
@@ -1056,55 +1041,87 @@ class WaterSystem(object):
                 self.scenario.reporter.report(action='error', message=msg)
             raise
 
-    # def save_results_to_s3(self):
-    #
-    #     import boto3
-    #     s3 = boto3.client('s3')
-    #
-    #     if len(self.scenario.base_ids) == 1:
-    #         o = s = self.scenario.base_ids[0]
-    #     else:
-    #         o, s = self.scenario.base_ids
-    #     base_path = 'results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
-    #         project=self.network.project_id,
-    #         network=self.network.id,
-    #         run=self.args.start_time,
-    #         scenario='O{}-S{}'.format(o, s),
-    #         subscenario=self.metadata['number'])
-    #
-    #     # save variable data to database
-    #     res_scens = []
-    #     res_names = {}
-    #
-    #     try:
-    #
-    #         # write metadata
-    #         content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': ')).encode()
-    #         s3.put_object(Body=content, Bucket='openagua.org', Key=base_path + '/metadata.json')
-    #
-    #         count = 1
-    #         pcount = 1
-    #         nparams = len(self.store)
-    #         path = base_path + '/data/{parameter}.csv'
-    #         for attr_name, param_values in self.store.items():
-    #             pcount += 1
-    #             df = self.param_to_df(attr_name, param_values)
-    #             content = df.to_csv().encode()
-    #
-    #             if content:
-    #                 s3.put_object(Body=content, Bucket='openagua.org', Key=path.format(parameter=attr_name))
-    #
-    #             if count % 10 == 0 or pcount == nparams:
-    #                 if self.scenario.reporter:
-    #                     self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
-    #             count += 1
-    #
-    #     except:
-    #         msg = 'ERROR: Results could not be saved.'
-    #         # self.logd.info(msg)
-    #         if self.scenario.reporter:
-    #             self.scenario.reporter.report(action='error', message=msg)
-    #         raise
+    def save_results_to_s3(self):
+
+        s3 = boto3.client('s3')
+
+        if len(self.scenario.base_ids) == 1:
+            o = s = self.scenario.base_ids[0]
+        else:
+            o, s = self.scenario.base_ids
+
+        base_path = '{folder}/.results/{run}/{date}/{scenario}/{variation}'.format(
+            folder=self.storage.folder,
+            run=self.scenario.run_name,
+            scenario=self.scenario.result_scenario.id,
+            date=self.scenario.version_date,
+            variation=self.metadata['number']
+        )
+
+        # save variable data to database
+        res_scens = []
+        res_names = {}
+
+        try:
+
+            # write metadata
+            content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': ')).encode()
+            s3.put_object(Body=content, Bucket=self.bucket_name, Key=base_path + '/metadata.json')
+
+            count = 1
+            pcount = 1
+            nparams = len(self.store)
+            path = base_path + '/{resource_type}/{resource_id}/{attr_id}.csv'
+            for res_attr_idx in self.store:
+                resource_type, resource_id, attr_id = res_attr_idx.split('/')
+                resource_id = int(resource_id)
+                attr_id = int(attr_id)
+
+                tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
+                if not tattr or not tattr['properties'].get('save'):
+                    continue
+
+                res_attr_id = self.conn.res_attr_lookup.get((resource_type, resource_id, attr_id))
+                if not res_attr_id:
+                    continue
+                resource_name = self.conn.raid_to_res_name[res_attr_id]
+
+                value = self.store[res_attr_idx]
+                pcount += 1
+
+                # define the dataset value
+                data_type = tattr['data_type']
+                attr_name = tattr['attr_name']
+                try:
+                    if 'timeseries' in data_type:
+                        if tattr['properties'].get('has_blocks') and type(list(value.values())[0]) == dict:
+                            df = pd.DataFrame(value)
+                        else:
+                            df = pd.DataFrame({0: value})
+                        value = df.to_csv()
+                    else:
+                        value = str(value)
+                    content = value.encode()
+                except:
+                    print('Failed to prepare: {}'.format(attr_name))
+                    continue
+
+                if content:
+                    key = path.format(resource_type=resource_type, resource_id=resource_id, attr_id=attr_id)
+                    s3.put_object(Body=content, Bucket=self.bucket_name, Key=key)
+
+                if count % 10 == 0 or pcount == nparams:
+                    if self.scenario.reporter:
+                        self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
+                count += 1
+
+        except:
+            msg = 'ERROR: Results could not be saved.'
+            # self.logd.info(msg)
+            if self.scenario.reporter:
+                self.scenario.reporter.report(action='error', message=msg)
+            raise
+
     #
     def save_results_to_local(self):
 

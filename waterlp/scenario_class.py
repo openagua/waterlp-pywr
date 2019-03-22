@@ -1,3 +1,6 @@
+from waterlp.utils.scenarios import create_subscenarios
+from datetime import datetime as dt
+
 statuses = {
     'start': 'started',
     'done': 'finished',
@@ -11,7 +14,7 @@ statuses = {
 
 
 class Scenario(object):
-    def __init__(self, scenario_ids, conn, network, args):
+    def __init__(self, scenario_ids, conn, network, template, args, scenario_lookup):
         self.base_scenarios = []
         self.source_id = args.source_id
         self.run_name = args.run_name
@@ -21,7 +24,7 @@ class Scenario(object):
         self.total_steps = 1
         self.finished = 0
         self.current_date = None
-        self.scenario_id = None # result scenario ID
+        self.scenario_id = None  # result scenario ID
 
         # self.start_time = '0'
         # self.end_time = '9'
@@ -48,7 +51,7 @@ class Scenario(object):
             source = [s for s in network.scenarios if s.id == base_id][0]
 
             if i and source.id in self.source_ids:
-                continue # this is a baseline scenario; already accounted for
+                continue  # this is a baseline scenario; already accounted for
 
             self.base_scenarios.append(source)
             self.source_scenarios[base_id] = source
@@ -83,10 +86,13 @@ class Scenario(object):
 
             source_names.append(s.name)
 
-        self.name = ' - '.join(source_names)
-        if args.run_name:
-            self.name = '{} - {}'.format(args.run_name, self.name)
-        # results_scenario_name = '{}; {}'.format(base_name, self.starttime.strftime('%Y-%m-%d %H:%M:%S'))
+        self.source_name = ' - '.join(source_names)
+        if self.run_name:
+            self.name = '{}: {}'.format(self.run_name, self.source_name)
+
+        # mod_date = datetime.now().isoformat()
+        # results_scenario_name = '{} - {}'.format(self.name, mod_date)
+        results_scenario_name = self.name
 
         self.option = self.base_scenarios[0]
         self.scenario = self.base_scenarios[-1]
@@ -97,6 +103,83 @@ class Scenario(object):
 
             # self.start_time = max(self.start_time, source.get('start_time', '0000'))
             # self.end_time = min(self.end_time, source.get('end_time', '9999'))
+
+        # ######################
+        # Create sub scenarios
+        # ######################
+
+        self.subscenarios = {
+            'options':  create_subscenarios(network, template, self.option, 'option'),
+            'scenarios': create_subscenarios(network, template, self.scenario, 'scenario'),
+        }
+
+        self.variation_count = 0
+        for sss in self.subscenarios.values():
+            for ss in sss:
+                if ss['variations']:
+                    self.variation_count += 1
+
+        # ######################
+        # Create result scenario
+        # ######################
+
+        result_scenario = scenario_lookup.get(results_scenario_name)
+        if not result_scenario or result_scenario.id in self.source_ids:
+            result_scenario = conn.call(
+                'add_scenario',
+                {
+                    'network_id': network.id,
+                    'scen': {
+                        'id': None,
+                        'name': results_scenario_name,
+                        # 'cr_date': mod_date,
+                        'description': '',
+                        'network_id': network.id,
+                        'layout': {
+                            'class': 'results',
+                            'sources': self.base_ids,
+                            'tags': self.tags,
+                            'run': args.run_name,
+                        }
+                    }
+                }
+            )
+
+        # where should results be saved?
+        if self.variation_count == 0:
+            self.destination = 'source'
+        else:
+            self.destination = 's3'
+
+        self.version_date = dt.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        # update the result scenario
+        versions = result_scenario['layout'].get('versions', [])
+        versions.append({
+            'number': len(versions) + 1,
+            'date': self.version_date
+        })
+        result_scenario['layout'].update({
+            'data_location': self.destination,
+            'versions': versions,
+            'modified_date': self.version_date
+        })
+
+        result = conn.call('update_scenario', {'scen': result_scenario})
+
+        # write variation info to s3
+
+        self.storage = network.layout.get('storage')
+
+        if self.destination == 's3':
+            self.base_path = '{folder}/.results/{run}/{date}/{scenario}'.format(
+                folder=self.storage.folder,
+                run=self.run_name,
+                scenario=result_scenario.id,
+                date=self.version_date,
+            )
+
+        self.result_scenario = result_scenario
 
     def update_payload(self, action=None, **payload):
         payload.update({

@@ -21,7 +21,6 @@ from waterlp.connection import connection
 from waterlp.logger import create_logger
 from waterlp.models.system import WaterSystem
 from waterlp.scenario_class import Scenario
-from waterlp.utils.scenarios import create_subscenarios
 from waterlp.utils.application import ProcessState
 
 current_step = 0
@@ -175,17 +174,13 @@ def run_scenarios(args, networklog):
             raise
 
         # create the scenario class
-        scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, args=args)
+        scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, template=conn.template, args=args,
+                            scenario_lookup=base_system.scenarios)
 
         start_payload = scenario.update_payload(action='start')
         networklog.info(msg="Model started")
         if post_reporter:
             post_reporter.start(is_main_reporter=(args.message_protocol == 'post'), **start_payload)
-
-        # create the system class
-        # TODO: pass resources as dictionaries instead for quicker lookup
-        option_subscenarios = create_subscenarios(conn.network, conn.template, scenario.option, 'option')
-        scenario_subscenarios = create_subscenarios(conn.network, conn.template, scenario.scenario, 'scenario')
 
         try:
 
@@ -196,8 +191,8 @@ def run_scenarios(args, networklog):
             system.collect_source_data()
 
             # organize the subscenarios
-            flattened = product(option_subscenarios, scenario_subscenarios)
-            subscenario_count = len(option_subscenarios) * len(scenario_subscenarios)
+            flattened = product(scenario.subscenarios['options'], scenario.subscenarios['scenarios'])
+            subscenario_count = len(scenario.subscenarios['options']) * len(scenario.subscenarios['scenarios'])
 
             if args.debug:
                 verbose = True
@@ -285,8 +280,6 @@ def run_scenario(supersubscenario, args, verbose=False):
 
     try:
 
-        # for result in _run_scenario(system, args, conn, supersubscenario, reporter=reporter, verbose=verbose):
-        #     pass
         _run_scenario(system, args, supersubscenario, reporter=reporter, verbose=verbose)
 
     except Ignore as err:
@@ -348,7 +341,6 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         step = (system.dates[ts] - system.dates[ts - 1]).days if ts else system.dates[0].day
 
         if system.scenario.time_step != 'day':
-
             system.model.update_timesteps(
                 start=current_dates_as_string[0],
                 end=current_dates_as_string[-1],
