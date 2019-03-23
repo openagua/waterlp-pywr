@@ -4,8 +4,8 @@ services:
     redis:
         image: redis:latest
         hostname: redis
-        ports:
-            - "6379:6379"
+        expose:
+            - 6379
         restart: always
 
     worker:

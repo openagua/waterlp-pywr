@@ -222,14 +222,11 @@ def run_scenarios(args, networklog):
                 # m = "Unknown error."
                 m = str(err)
             message = "Error: Failed to prepare system.\n\n{}".format(m)
+            networklog.info(msg=message)
             print(message)
             if post_reporter:
                 payload = scenario.update_payload(action='error', message=message)
                 post_reporter.report(**payload)
-            else:
-                print(message)
-
-            networklog.info(msg=message)
 
             raise
 
