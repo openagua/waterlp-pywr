@@ -1,0 +1,1 @@
+from waterlp.celery_app import app
