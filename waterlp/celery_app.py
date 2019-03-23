@@ -34,7 +34,8 @@ app.conf.update(
     task_default_exchange='tasks',
     broker_heartbeat=10,
     accept_content=['json', 'pickle'],
-    result_expires=3600
+    result_expires=3600,
+    worker_prefetch_multiplier=1,
 )
 
 # test redis
