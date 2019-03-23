@@ -219,7 +219,6 @@ def run_scenarios(args, networklog):
             if err_class == 'InnerSyntaxError':
                 m = err.message
             else:
-                # m = "Unknown error."
                 m = str(err)
             message = "Error: Failed to prepare system.\n\n{}".format(m)
             networklog.info(msg=message)
