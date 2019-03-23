@@ -2,14 +2,14 @@ version: '3'
 services:
 
     redis:
-        hostname: redis
         image: redis:latest
+        hostname: redis
         ports:
           - "6379:6379"
         restart: always
 
     worker:
-        image: waterlp-pywr:latest
+        image: openagua/waterlp-pywr:sanjoaquin
         env_file: variables.env
         command: [celery, worker, --app=waterlp.app, --concurrency=10, --loglevel=WARNING]
         volumes:
