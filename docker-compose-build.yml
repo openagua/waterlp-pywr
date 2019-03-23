@@ -1,11 +1,9 @@
-# for development
-
 version: '3'
 services:
 
     redis:
         image: redis:latest
-        network_mode: "host"
+        hostname: redis
         ports:
           - "6379:6379"
         restart: always
@@ -13,6 +11,8 @@ services:
     worker:
         build: .
         env_file: variables.env
+        environment:
+            - REDIS_HOST=redis
         command: [celery, worker, --app=waterlp.app, --concurrency=4, --loglevel=WARNING]
         volumes:
             - .:/app
