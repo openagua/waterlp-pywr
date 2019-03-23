@@ -13,7 +13,8 @@ services:
         env_file: variables.env
         environment:
           - REDIS_HOST=redis
-        command: [celery, worker, --app=waterlp.app, --concurrency=10, --loglevel=WARNING]
+          - C_FORCE_ROOT=1
+        command: [celery, worker, --app=waterlp.app, --concurrency=4, --loglevel=INFO]
         volumes:
             - .:/app
             - /etc/localtime:/etc/localtime
@@ -21,3 +22,4 @@ services:
             - redis
         depends_on:
             - redis
+        restart: always

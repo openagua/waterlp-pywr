@@ -13,6 +13,8 @@ services:
     worker:
         build: .
         env_file: variables.env
+        environment:
+            - C_FORCE_ROOT=1
         command: [celery, worker, --app=waterlp.app, --concurrency=4, --loglevel=WARNING]
         volumes:
             - .:/app
