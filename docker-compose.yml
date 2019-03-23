@@ -1,0 +1,23 @@
+version: '3'
+services:
+
+    redis:
+        image: redis:latest
+        hostname: redis
+        expose:
+            - 6379
+        restart: always
+
+    worker:
+        image: openagua/waterlp-pywr:sanjoaquin
+        env_file: variables.env
+        environment:
+            - REDIS_HOST=redis
+            - C_FORCE_ROOT=1
+        volumes:
+            - .:/app
+            - /etc/localtime:/etc/localtime
+        links:
+            - redis
+        depends_on:
+            - redis
