@@ -37,25 +37,24 @@ app.conf.update(
     result_expires=3600
 )
 
+# test redis
+redis.set('test', 1)
+
+# app.config_from_object('waterlp.celeryconfig')
+app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
+logs_dir = '{}/logs'.format(app_dir)
+if path.exists(app_dir):
+    rmtree(app_dir)
+makedirs(logs_dir)
+
+pnconfig = PNConfiguration()
+pnconfig.subscribe_key = environ.get('PUBNUB_SUBSCRIBE_KEY')
+pnconfig.ssl = False
+pubnub = PubNub(pnconfig)
+pubnub.add_listener(PNSubscribeCallback())
+
+pubnub.subscribe().channels(queue_name).execute()
+print(" [*] Subscribed to PubNub")
+
 if __name__ == '__main__':
-
-    # test redis
-    redis.set('test', 1)
-
-    # app.config_from_object('waterlp.celeryconfig')
-    app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
-    logs_dir = '{}/logs'.format(app_dir)
-    if path.exists(app_dir):
-        rmtree(app_dir)
-    makedirs(logs_dir)
-
-    pnconfig = PNConfiguration()
-    pnconfig.subscribe_key = environ.get('PUBNUB_SUBSCRIBE_KEY')
-    pnconfig.ssl = False
-    pubnub = PubNub(pnconfig)
-    pubnub.add_listener(PNSubscribeCallback())
-
-    pubnub.subscribe().channels(queue_name).execute()
-    print(" [*] Subscribed to PubNub")
-
     app.start(['celery', 'worker', '-l', 'INFO'])
