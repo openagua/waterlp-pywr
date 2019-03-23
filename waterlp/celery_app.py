@@ -3,12 +3,6 @@ from os import path, environ, makedirs
 from shutil import rmtree
 from celery import Celery
 
-from waterlp.utils.application import PNSubscribeCallback
-from waterlp.reporters.redis import local_redis as redis
-
-from pubnub.pnconfiguration import PNConfiguration
-from pubnub.pubnub import PubNub
-
 run_key = environ.get('RUN_KEY')
 model_key = environ.get('MODEL_KEY')
 queue_name = 'model-{}'.format(model_key)
@@ -38,24 +32,35 @@ app.conf.update(
     worker_prefetch_multiplier=1,
 )
 
-# test redis
-redis.set('test', 1)
 
-# app.config_from_object('waterlp.celeryconfig')
-app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
-logs_dir = '{}/logs'.format(app_dir)
-if path.exists(app_dir):
-    rmtree(app_dir)
-makedirs(logs_dir)
+def start_listening(concurrency=4):
+    from waterlp.utils.application import PNSubscribeCallback
+    from waterlp.reporters.redis import local_redis as redis
 
-pnconfig = PNConfiguration()
-pnconfig.subscribe_key = environ.get('PUBNUB_SUBSCRIBE_KEY')
-pnconfig.ssl = False
-pubnub = PubNub(pnconfig)
-pubnub.add_listener(PNSubscribeCallback())
+    from pubnub.pnconfiguration import PNConfiguration
+    from pubnub.pubnub import PubNub
 
-pubnub.subscribe().channels(queue_name).execute()
-print(" [*] Subscribed to PubNub")
+    # test redis
+    redis.set('test', 1)
+
+    # app.config_from_object('waterlp.celeryconfig')
+    app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
+    logs_dir = '{}/logs'.format(app_dir)
+    if path.exists(app_dir):
+        rmtree(app_dir)
+    makedirs(logs_dir)
+
+    pnconfig = PNConfiguration()
+    pnconfig.subscribe_key = environ.get('PUBNUB_SUBSCRIBE_KEY')
+    pnconfig.ssl = False
+    pubnub = PubNub(pnconfig)
+    pubnub.add_listener(PNSubscribeCallback())
+
+    pubnub.subscribe().channels(queue_name).execute()
+    print(" [*] Subscribed to PubNub")
+
+    app.start(['celery', 'worker', '-c', str(concurrency), '-l', 'INFO'])
+
 
 if __name__ == '__main__':
-    app.start(['celery', 'worker', '-l', 'INFO'])
+    start_listening()

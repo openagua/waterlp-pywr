@@ -50,8 +50,6 @@ def commandline_parser():
                         help='''URL to ping indicating activity.''')
     parser.add_argument('--mp', dest='message_protocol', default=None,
                         help='''Message protocol to report progress back to client browser''')
-    parser.add_argument('--wurl', dest='websocket_url',
-                        help='''URL and port that is listening for activity.''')
     parser.add_argument('--guid', default=uuid.uuid4().hex, dest='unique_id',
                         help='''Unique identifier for this run.''')
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
