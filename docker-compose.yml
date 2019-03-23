@@ -11,6 +11,8 @@ services:
     worker:
         image: openagua/waterlp-pywr:sanjoaquin
         env_file: variables.env
+        environment:
+          - REDIS_HOST=redis
         command: [celery, worker, --app=waterlp.app, --concurrency=10, --loglevel=WARNING]
         volumes:
             - .:/app
