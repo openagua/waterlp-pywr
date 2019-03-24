@@ -14,7 +14,6 @@ services:
         environment:
             - REDIS_HOST=localhost
             - C_FORCE_ROOT=1
-        command: [python3, run.py]
         volumes:
             - .:/app
             - /etc/localtime:/etc/localtime
