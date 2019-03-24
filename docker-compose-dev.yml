@@ -10,7 +10,6 @@ services:
 
     worker:
         build: .
-        env_file: variables.env
         environment:
             - REDIS_HOST=localhost
             - C_FORCE_ROOT=1

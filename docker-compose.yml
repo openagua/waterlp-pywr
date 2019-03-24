@@ -10,7 +10,6 @@ services:
 
     worker:
         image: openagua/waterlp-pywr:sanjoaquin
-        env_file: variables.env
         environment:
             - REDIS_HOST=redis
             - C_FORCE_ROOT=1
