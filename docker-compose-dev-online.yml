@@ -1,0 +1,22 @@
+version: '3'
+services:
+
+    redis:
+        image: redis:latest
+        ports:
+            - "6379:6379"
+        restart: always
+
+    worker:
+        build: .
+        env_file: variables.env
+        environment:
+            - REDIS_HOST=openagua-redis
+            - C_FORCE_ROOT=1
+        volumes:
+            - .:/app
+            - /etc/localtime:/etc/localtime
+        links:
+            - "redis:openagua-redis"
+        depends_on:
+            - redis
