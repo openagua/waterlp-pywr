@@ -966,9 +966,12 @@ class Evaluator:
             try:
                 df = pandas.read_csv(path, **kwargs)
             except Exception as err:
+                print("==============")
                 print("Could not load csv file from path {}".format(path))
                 print("kwargs: {}".format(kwargs))
-                print("\nOriginal error:\n{}\n".format(err))
+                print("Original error:\n")
+                print(err)
+                print("==============")
                 raise
 
             # client = boto3.client('s3')
