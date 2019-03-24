@@ -961,10 +961,14 @@ class Evaluator:
             fill_method = kwargs.pop('fill_method', None)
             interp_method = kwargs.pop('interp_method', None)
 
-            path = 's3://{}/{}/{}'.format(self.bucket_name, self.files_path, path)
+            fullpath = '{}/{}'.format(self.files_path, path)
+            path = 's3://{}/{}'.format(self.bucket_name, fullpath)
 
             try:
-                df = pandas.read_csv(path, **kwargs)
+                # df = pandas.read_csv(path, **kwargs)
+                client = boto3.client('s3')
+                obj = client.get_object(Bucket=self.bucket_name, Key=fullpath)
+                df = pandas.read_csv(BytesIO(obj['Body'].read()), **kwargs)
             except Exception as err:
                 print("==============")
                 print("Could not load csv file from path {}".format(path))
@@ -973,10 +977,6 @@ class Evaluator:
                 print(err)
                 print("==============")
                 raise
-
-            # client = boto3.client('s3')
-            # obj = client.get_object(Bucket=self.bucket, Key=fullpath)
-            # df = pandas.read_csv(BytesIO(obj['Body'].read()), **kwargs)
 
             if fill_method:
                 interp_args = {}
