@@ -10,4 +10,4 @@ logs/*
 .idea/
 *.lp
 *.mps
-variables.env
+*.env
