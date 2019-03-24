@@ -78,7 +78,7 @@ class WaterSystem(object):
                  session=None, reporter=None, scenario=None):
 
         self.storage = network.layout.get('storage')
-        self.bucket_name = args.aws_s3_bucket
+        self.bucket_name = os.environ.get('AWS_S3_BUCKET')
 
         # Both of these are now converted to cubic meters (per time step)
         self.SECOND_TO_DAY = 60 * 60 * 24  # convert to million ft^3/day

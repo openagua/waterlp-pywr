@@ -404,7 +404,7 @@ class Evaluator:
         self.resource_scenarios = {}
         self.external = {}
 
-        self.bucket = environ.get('AWS_S3_BUCKET')
+        self.bucket_name = environ.get('AWS_S3_BUCKET')
         self.files_path = files_path
 
         self.namespace = namespace
@@ -961,8 +961,14 @@ class Evaluator:
             fill_method = kwargs.pop('fill_method', None)
             interp_method = kwargs.pop('interp_method', None)
 
-            path = 's3://{}/{}/{}'.format(self.bucket, self.files_path, path)
-            df = pandas.read_csv(path, **kwargs)
+            path = 's3://{}/{}/{}'.format(self.bucket_name, self.files_path, path)
+
+            try:
+                df = pandas.read_csv(path, **kwargs)
+            except Exception as err:
+                print("Could not load csv file from path {}".format(path))
+                print("kwargs: {}".format(kwargs))
+                raise
 
             # client = boto3.client('s3')
             # obj = client.get_object(Bucket=self.bucket, Key=fullpath)
