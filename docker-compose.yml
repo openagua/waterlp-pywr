@@ -3,9 +3,9 @@ services:
 
     redis:
         image: redis:latest
-        hostname: waterlp-redis
-        expose:
-            - 6379
+        hostname: redis
+        ports:
+            - "6379:6379"
         restart: always
 
     worker:
@@ -18,6 +18,6 @@ services:
             - .:/app
             - /etc/localtime:/etc/localtime
         links:
-            - redis:waterlp-redis
+            - redis
         depends_on:
             - redis
