@@ -55,6 +55,8 @@ def commandline_parser():
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
     parser.add_argument('--debug_ts', dest='debug_ts', type=int, default=10,
                         help='''The number of timesteps to run in debug mode.''')
+    parser.add_argument('--debug_s', dest='debug_s', type=int, default=2,
+                        help='''The number of scenarios to run in debug mode.''')
     parser.add_argument('--debug_gain', dest='debug_gain', action='store_true',
                         help='''Debug flag for the Pyomo model.''')
     parser.add_argument('--debug_loss', dest='debug_loss', action='store_true',

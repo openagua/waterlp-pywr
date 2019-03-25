@@ -235,7 +235,7 @@ def run_scenarios(args, networklog):
 
     if args.debug:
         networklog.info("Running scenario in debug mode")
-        run_scenario(all_supersubscenarios[0], args=args, verbose=verbose)
+        run_scenario(all_supersubscenarios[:args.debug_s], args=args, verbose=verbose)
     else:
         for ss in all_supersubscenarios:
             run_scenario.apply_async((ss, args, verbose), serializer='pickle', compression='gzip')
