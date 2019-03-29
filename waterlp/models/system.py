@@ -560,11 +560,10 @@ class WaterSystem(object):
 
         variation_sets = supersubscenario.get('variation_sets')
 
-        self.metadata = {'number': supersubscenario.get('i'), 'variation_sets': {}}
+        self.metadata = {'number': supersubscenario.get('id'), 'variation_sets': {}}
         for i, variation_set in enumerate(variation_sets):
             vs = []
             for (resource_type, resource_id, attr_id), value in variation_set['variations'].items():
-
                 tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
                 resource_name = self.resources.get((resource_type, resource_id), {}).get('name', 'unknown resource')
 
@@ -751,7 +750,7 @@ class WaterSystem(object):
                 scope='store'
             )
 
-        # 2. update Pyomo model
+        # 2. update Pywr model
         if step == 'main':
             # for attr_name in self.valueParams + self.demandParams:
             self.model.updated = {}
@@ -893,18 +892,18 @@ class WaterSystem(object):
         for filename in ['pywr_glpk_debug.lp', 'pywr_glpk_debug.mps']:
             if os.path.exists(filename):
                 with open(filename, 'r') as file:
+                    key = '{network_folder}/{log_dir}/{filename}'.format(
+                        network_folder=self.storage.folder,
+                        log_dir=self.log_dir,
+                        filename=filename
+                    )
                     content = file.read()
-                    self.save_to_file(filename, content)
+                    self.save_to_file(key, content)
             else:
                 return None
 
-    def save_to_file(self, filename, content):
+    def save_to_file(self, key, content):
         s3 = boto3.client('s3')
-        key = '{network_folder}/{log_dir}/{filename}'.format(
-            network_folder=self.storage.folder,
-            log_dir=self.log_dir,
-            filename=filename
-        )
         s3.put_object(Body=content, Bucket=self.bucket_name, Key=key)
 
     def save_results(self, error=False):
@@ -1042,7 +1041,7 @@ class WaterSystem(object):
             raise
 
     def save_results_to_s3(self):
-
+        # TODO: parallelize this (via queue?)
         s3 = boto3.client('s3')
 
         if len(self.scenario.base_ids) == 1:
@@ -1050,12 +1049,24 @@ class WaterSystem(object):
         else:
             o, s = self.scenario.base_ids
 
-        base_path = '{folder}/.results/{run}/{date}/{scenario}/{variation}'.format(
-            folder=self.storage.folder,
-            run=self.scenario.run_name,
-            scenario=self.scenario.result_scenario.id,
-            date=self.scenario.version_date,
-            variation=self.metadata['number']
+        if self.args.human_readable:
+            variation_name = '{{:0{}}}'\
+                .format(len(str(self.scenario.subscenario_count)))\
+                .format(self.metadata['number'])
+            variation_sets = self.metadata['variation_sets']
+            for scope in variation_sets:
+                for variation in variation_sets[scope]['variations']:
+                    variation_name += '__{}={}'.format(
+                        variation['resource_name'][:1],
+                        variation['variation']['value']
+                    )
+
+        else:
+            variation_name = self.metadata['number']
+
+        base_path = '{scenario_base_path}/{variation}'.format(
+            scenario_base_path=self.scenario.base_path,
+            variation=variation_name
         )
 
         # save variable data to database
@@ -1107,12 +1118,16 @@ class WaterSystem(object):
                     continue
 
                 if content:
-                    key = path.format(resource_type=resource_type, resource_id=resource_id, attr_id=attr_id)
+                    if self.args.human_readable:
+                        key = path.format(resource_type=resource_type, resource_id=resource_name, attr_id=attr_name)
+                    else:
+                        key = path.format(resource_type=resource_type, resource_id=resource_id, attr_id=attr_id)
                     s3.put_object(Body=content, Bucket=self.bucket_name, Key=key)
 
                 if count % 10 == 0 or pcount == nparams:
                     if self.scenario.reporter:
-                        self.scenario.reporter.report(action='save', saved=round(count / (self.nparams + self.nvars) * 100))
+                        self.scenario.reporter.report(action='save',
+                                                      saved=round(count / (self.nparams + self.nvars) * 100))
                 count += 1
 
         except:

@@ -9,6 +9,8 @@ services:
 
     worker:
         build: .
+        env_file:
+          - variables.env
         environment:
             - REDIS_HOST=openagua-redis
             - C_FORCE_ROOT=1

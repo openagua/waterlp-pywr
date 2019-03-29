@@ -3,9 +3,11 @@ import getpass
 import json
 from datetime import datetime
 from itertools import product
-from copy import copy
+from copy import copy, deepcopy
 from ast import literal_eval
 from os import environ
+
+import pandas as pd
 
 from waterlp.celery_app import app
 from celery.exceptions import Ignore
@@ -174,7 +176,8 @@ def run_scenarios(args, networklog):
             raise
 
         # create the scenario class
-        scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, template=conn.template, args=args,
+        scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, template=conn.template,
+                            args=args,
                             scenario_lookup=base_system.scenarios)
 
         start_payload = scenario.update_payload(action='start')
@@ -185,7 +188,7 @@ def run_scenarios(args, networklog):
         try:
 
             # prepare the system
-            system = copy(base_system)
+            system = deepcopy(base_system)
             system.scenario = scenario
             system.initialize_time_steps()
             system.collect_source_data()
@@ -200,17 +203,37 @@ def run_scenarios(args, networklog):
                 system.dates = system.dates[:system.nruns]
                 system.dates_as_string = system.dates_as_string[:system.nruns]
 
-                subscenario_count = min(subscenario_count, 1)
+                subscenario_count = min(subscenario_count, args.debug_s)
 
             system.scenario.subscenario_count = subscenario_count
             system.scenario.total_steps = subscenario_count * len(system.dates)
 
-            supersubscenarios = [{
-                'i': i + 1,
-                'sid': sid,
-                'system': copy(system),  # this is intended to be a shallow copy
-                'variation_sets': variation_sets,
-            } for i, variation_sets in enumerate(flattened)]
+            supersubscenarios = []
+            scenario_key = {}
+            for i, variation_sets in enumerate(flattened):
+                supersubscenarios.append({
+                    'id': i + 1,
+                    'sid': sid,
+                    'system': copy(system),  # this is intended to be a shallow copy (TODO: verify this!)
+                    'variation_sets': variation_sets,
+                })
+
+                scenario_key[i+1] = {}
+                for variation_set in variation_sets:
+                    variations = variation_set.get('variations')
+                    for key in variations:
+                        (t, r, a) = key
+                        scenario_key[i+1]['{}/{}/{}'.format(t, r, a)] = variations[key]['value']
+
+            if scenario.destination != 'source':
+                # save scenario_key
+                key = '{base_path}/{filename}'.format(
+                    base_path=scenario.base_path,
+                    filename='scenario_key.csv'
+                )
+                # content = json.dumps(scenario_key, sort_keys=True, indent=4, separators=(',', ': ')).encode()
+                content = pd.DataFrame(scenario_key).transpose().to_csv().encode()
+                system.save_to_file(key, content)
 
             all_supersubscenarios.extend(supersubscenarios[:subscenario_count])
 
@@ -235,7 +258,8 @@ def run_scenarios(args, networklog):
 
     if args.debug:
         networklog.info("Running scenario in debug mode")
-        run_scenario(all_supersubscenarios[:args.debug_s], args=args, verbose=verbose)
+        for ss in all_supersubscenarios[:args.debug_s]:
+            run_scenario(ss, args=args, verbose=verbose)
     else:
         for ss in all_supersubscenarios:
             run_scenario.apply_async((ss, args, verbose), serializer='pickle', compression='gzip')

@@ -34,7 +34,7 @@ class Scenario(object):
 
         # look for existing option-scenario combination
         source_names = []
-        self.tags = []
+        tags = []
 
         loaded_scenarios = {s.id: s for s in network.scenarios}
 
@@ -81,8 +81,7 @@ class Scenario(object):
         self.base_ids = []
         for s in self.base_scenarios:
             self.base_ids.append(s.id)
-            if s.layout.get('tags'):
-                self.tags.extend(s.layout.tags)
+            tags.extend(s.layout.get('value_tags', []))
 
             source_names.append(s.name)
 
@@ -138,7 +137,7 @@ class Scenario(object):
                         'layout': {
                             'class': 'results',
                             'sources': self.base_ids,
-                            'tags': self.tags,
+                            'value_tags': tags,
                             'run': args.run_name,
                         }
                     }
@@ -157,12 +156,15 @@ class Scenario(object):
         versions = result_scenario['layout'].get('versions', [])
         versions.append({
             'number': len(versions) + 1,
-            'date': self.version_date
+            'date': self.version_date,
+            'variations': self.variation_count,
+            'viewable': not args.human_readable
         })
         result_scenario['layout'].update({
             'data_location': self.destination,
             'versions': versions,
-            'modified_date': self.version_date
+            'modified_date': self.version_date,
+            'value_tags': tags,
         })
 
         result = conn.call('update_scenario', {'scen': result_scenario})
@@ -175,7 +177,7 @@ class Scenario(object):
             self.base_path = '{folder}/.results/{run}/{date}/{scenario}'.format(
                 folder=self.storage.folder,
                 run=self.run_name,
-                scenario=result_scenario.id,
+                scenario=result_scenario.name if args.human_readable else result_scenario.id,
                 date=self.version_date,
             )
 
