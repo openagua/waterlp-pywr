@@ -1082,7 +1082,7 @@ class WaterSystem(object):
             count = 1
             pcount = 1
             nparams = len(self.store)
-            path = base_path + '/{resource_type}/{resource_id}/{attr_id}.csv'
+            path = base_path + '/{resource_type}/{resource_subtype}/{resource_id}/{attr_id}.csv'
             for res_attr_idx in self.store:
                 resource_type, resource_id, attr_id = res_attr_idx.split('/')
                 resource_id = int(resource_id)
@@ -1095,7 +1095,6 @@ class WaterSystem(object):
                 res_attr_id = self.conn.res_attr_lookup.get((resource_type, resource_id, attr_id))
                 if not res_attr_id:
                     continue
-                resource_name = self.conn.raid_to_res_name[res_attr_id]
 
                 value = self.store[res_attr_idx]
                 pcount += 1
@@ -1118,10 +1117,22 @@ class WaterSystem(object):
                     continue
 
                 if content:
+                    ttype = self.conn.types.get((resource_type, resource_id))
                     if self.args.human_readable:
-                        key = path.format(resource_type=resource_type, resource_id=resource_name, attr_id=attr_name)
+                        resource_name = self.conn.raid_to_res_name[res_attr_id]
+                        key = path.format(
+                            resource_type=resource_type,
+                            resource_subtype=ttype['name'],
+                            resource_id=resource_name,
+                            attr_id=attr_name
+                        )
                     else:
-                        key = path.format(resource_type=resource_type, resource_id=resource_id, attr_id=attr_id)
+                        key = path.format(
+                            resource_type=resource_type,
+                            resource_subtype=ttype['id'],
+                            resource_id=resource_id,
+                            attr_id=attr_id,
+                        )
                     s3.put_object(Body=content, Bucket=self.bucket_name, Key=key)
 
                 if count % 10 == 0 or pcount == nparams:

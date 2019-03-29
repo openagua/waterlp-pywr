@@ -146,11 +146,11 @@ class Scenario(object):
 
         # where should results be saved?
         if self.variation_count == 0:
-            self.destination = 'source'
+            self.destination = args.destination
         else:
             self.destination = 's3'
 
-        self.version_date = dt.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.version_date = args.starttime.strftime('%Y-%M-%d %H:%M:%S')
 
         # update the result scenario
         versions = result_scenario['layout'].get('versions', [])

@@ -63,7 +63,7 @@ class connection(object):
         self.attr_id_lookup = {}
         self.node_names = {}
         self.tattrs = {}
-
+        self.types = {}
         ttypes = {tt.id: tt for tt in self.template.types}
 
         def process_resource(resource_type, resource):
@@ -73,6 +73,7 @@ class connection(object):
             else:
                 return
             ttype = ttypes[rtype.id]
+            self.types[(resource_type, resource.id)] = {'id': ttype.id, 'name': ttype.name}
             tattrs = {ta.attr_id: ta for ta in ttype.typeattrs}
             for ra in resource.attributes:
                 if ra.attr_id in tattrs:
