@@ -9,7 +9,7 @@ queue_name = 'model-{}'.format(model_key)
 if run_key:
     queue_name += '-{}'.format(run_key)
 
-broker_url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
+broker_url = 'amqp://{username}:{password}@{hostname}:5672/{vhost}'.format(
     username=model_key,
     password=environ.get('RABBITMQ_PASSWORD', 'password'),
     hostname=environ.get('RABBITMQ_HOST', 'localhost'),
