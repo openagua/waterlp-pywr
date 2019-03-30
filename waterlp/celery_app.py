@@ -16,12 +16,7 @@ broker_url = 'amqp://{username}:{password}@{hostname}/{vhost}'.format(
     vhost=environ.get('RABBITMQ_VHOST', 'model-run'),
 )
 
-app = Celery(
-    'tasks',
-    broker=broker_url,
-    # backend='redis://{}'.format(redis_host),
-    include=['waterlp.tasks'],
-)
+app = Celery('openagua', broker=broker_url, include=['waterlp.tasks'])
 
 app.conf.update(
     task_default_queue=queue_name,
