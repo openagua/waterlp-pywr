@@ -20,7 +20,7 @@ app = Celery('openagua', broker=broker_url, include=['waterlp.tasks'])
 
 app.conf.update(
     task_default_queue=queue_name,
-    task_default_exchange='tasks',
+    task_default_exchange='openagua.run',
     broker_heartbeat=10,
     accept_content=['json', 'pickle'],
     result_expires=3600,
