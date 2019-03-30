@@ -35,6 +35,9 @@ class Object(object):
 
 @app.task(name='openagua.run')
 def run(**kwargs):
+
+    print(' [x] Task initiated')
+
     """This is for starting the model with Celery"""
     env = kwargs.get('env', {})
     args = kwargs.get('args')
@@ -54,7 +57,7 @@ def run(**kwargs):
         os.environ[key] = value
     for key in kwargs:
         setattr(args, key, kwargs[key])
-    # print(' [x] Running "{}" with {}'.format(args.run_name, args))
+    print(' [x] Running "{}" with {}'.format(args.run_name, args))
 
     RunLog = RunLogger(name='waterlp', app_name=args.app_name, run_name=args.run_name, logs_dir=logs_dir,
                        username=args.hydra_username)
