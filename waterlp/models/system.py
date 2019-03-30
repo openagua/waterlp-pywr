@@ -4,6 +4,7 @@ from attrdict import AttrDict
 import pandas as pd
 import boto3
 from datetime import datetime as dt
+from tqdm import tqdm
 
 from waterlp.models.pywr import PywrModel
 from waterlp.models.evaluator import Evaluator
@@ -220,7 +221,10 @@ class WaterSystem(object):
             files_path = None
 
         self.evaluator = Evaluator(self.conn, time_settings=time_settings, files_path=files_path,
-                                   date_format=self.date_format)
+                                   date_format=self.date_format, debug_ts=self.args.debug_ts,
+                                   debug_start=self.args.debug_start)
+
+        self.timesteps = self.evaluator.timesteps
         self.dates = self.evaluator.dates
         self.dates_as_string = self.evaluator.dates_as_string
 
@@ -288,14 +292,22 @@ class WaterSystem(object):
                 key = '{}/{}/{}'.format(resource_type, resource_id, rs.attr_id)
                 self.evaluator.resource_scenarios[key] = rs.value
 
-        # evaluate source data
+        # collect/evaluate source data
+        print("[*] Collecting source data")
+        dataset_count = len(self.evaluator.resource_scenarios)
+        cnt = 0
         for source_id in self.scenario.source_ids:
 
             self.evaluator.scenario_id = source_id
 
             source = self.scenario.source_scenarios[source_id]
 
-            for rs in source.resourcescenarios:
+            print("[*] Collecting data for {}".format(source['name']))
+            tqdm_data = tqdm(source.resourcescenarios, leave=False, ncols=80, disable=not self.args.debug)
+            for rs in tqdm_data:
+                cnt += 1
+                if rs.resource_attr_id not in self.res_tattrs:
+                    continue  # this is for a different resource type
 
                 # get identifiers
                 if rs.resource_attr_id in self.ra_node:
@@ -309,9 +321,12 @@ class WaterSystem(object):
                     resource_id = self.network.id
                 res_idx = (resource_type, resource_id)
 
+                key = '{}/{}/{}'.format(resource_type, resource_id, rs.attr_id)
+
                 try:
 
                     res_tattr = self.res_tattrs.get(rs.resource_attr_id)
+
                     if not res_tattr:
                         continue  # this is for a different resource type
 
@@ -320,6 +335,19 @@ class WaterSystem(object):
                     tattr = self.conn.tattrs[(resource_type, resource_id, attr_id)]
                     if not tattr:
                         continue
+
+                    # if tattr['properties'].get('observed') or 'observed' in tattr['attr_name'].lower():
+                    #     continue
+
+                    # store the resource scenario value for future lookup
+                    # self.evaluator.resource_scenarios[key] = rs.value
+
+                    # if self.args.debug:
+                    #     tqdm_data.set_description('{} {}'.format(
+                    #         tattr['attr_name'],
+                    #         self.resources[(resource_type, resource_id)]['name']
+                    #     ))
+
                     intermediary = tattr['properties'].get('intermediary', False)
                     # attr_name = tattr['att']
                     is_var = tattr['is_var'] == 'Y'
@@ -407,8 +435,8 @@ class WaterSystem(object):
 
                         try:
                             if is_function:
-                                function = metadata['function']
-                                if not function:  # if there is no function, this will be treated as no dataset
+                                function = metadata.get('function')
+                                if not function:
                                     continue
 
                             use_function = len(values) < N
@@ -449,6 +477,8 @@ class WaterSystem(object):
                     )
 
                     raise Exception(msg)
+
+        return
 
     def initialize(self, supersubscenario):
         """A wrapper for all initialization steps."""
@@ -908,6 +938,8 @@ class WaterSystem(object):
 
     def save_results(self, error=False):
 
+        print('[*] Saving data')
+
         if self.scenario.reporter:
             self.scenario.reporter.report(action='save', saved=0)
 
@@ -932,7 +964,10 @@ class WaterSystem(object):
         try:
             n = 0
             N = len(self.store)
-            for key, value in self.store.items():
+            # for key, value in self.store.items():
+            for key in tqdm(self.store, leave=False, ncols=80, disable=not self.args.debug):
+
+                value = self.store[key]
                 n += 1
                 resource_type, resource_id, attr_id = key.split('/')
                 resource_id = int(resource_id)
@@ -1050,8 +1085,8 @@ class WaterSystem(object):
             o, s = self.scenario.base_ids
 
         if self.args.human_readable:
-            variation_name = '{{:0{}}}'\
-                .format(len(str(self.scenario.subscenario_count)))\
+            variation_name = '{{:0{}}}' \
+                .format(len(str(self.scenario.subscenario_count))) \
                 .format(self.metadata['number'])
             variation_sets = self.metadata['variation_sets']
             for scope in variation_sets:
@@ -1083,7 +1118,7 @@ class WaterSystem(object):
             pcount = 1
             nparams = len(self.store)
             path = base_path + '/{resource_type}/{resource_subtype}/{resource_id}/{attr_id}.csv'
-            for res_attr_idx in self.store:
+            for res_attr_idx in tqdm(self.store, ncols=80, leave=False):
                 resource_type, resource_id, attr_id = res_attr_idx.split('/')
                 resource_id = int(resource_id)
                 attr_id = int(attr_id)

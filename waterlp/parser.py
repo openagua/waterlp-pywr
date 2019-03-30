@@ -69,5 +69,7 @@ def commandline_parser():
                         help='''Suppress input from results. This can speed up writing results.''')
     parser.add_argument('--st', dest='start_time', default=datetime.now().isoformat(), help='''Run start time.''')
     parser.add_argument('--hr', dest='human_readable', action='store_true', help='''Output should be human readable.''')
+    parser.add_argument('--ds', dest='debug_start', default=None, help='''Debug start time.''')
+    # parser.add_argument('--de', dest='debug_end', default=None, help='''Debug end time.''')
 
     return parser

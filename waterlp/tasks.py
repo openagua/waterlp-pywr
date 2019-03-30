@@ -4,6 +4,7 @@ from datetime import datetime
 from itertools import product
 from copy import copy, deepcopy
 from ast import literal_eval
+from tqdm import tqdm
 
 import pandas as pd
 
@@ -22,10 +23,6 @@ from waterlp.logger import create_logger
 from waterlp.models.system import WaterSystem
 from waterlp.scenario_class import Scenario
 from waterlp.utils.application import ProcessState
-
-current_step = 0
-total_steps = 0
-
 
 class Object(object):
     def __init__(self, values):
@@ -57,7 +54,6 @@ def run(**kwargs):
         os.environ[key] = value
     for key in kwargs:
         setattr(args, key, kwargs[key])
-    print(' [x] Running "{}" with {}'.format(args.run_name, args))
 
     RunLog = RunLogger(name='waterlp', app_name=args.app_name, run_name=args.run_name, logs_dir=logs_dir,
                        username=args.hydra_username)
@@ -75,6 +71,8 @@ def run_model(args, logs_dir, **kwargs):
     if not args.log_dir:
         args.log_dir = 'network-{}'.format(args.network_id)
     args.log_dir = os.path.join(logs_dir, args.log_dir)
+
+    print('[*] Running "{}" with {}'.format(args.run_name, args))
 
     # specify scenarios log dir
     args.scenario_log_dir = 'scenario_logs'
@@ -201,13 +199,14 @@ def run_scenarios(args, networklog):
             if args.debug:
                 verbose = True
                 system.nruns = min(args.debug_ts, system.nruns)
+                system.timesteps = system.timesteps[:system.nruns]
                 system.dates = system.dates[:system.nruns]
                 system.dates_as_string = system.dates_as_string[:system.nruns]
 
                 subscenario_count = min(subscenario_count, args.debug_s)
 
             system.scenario.subscenario_count = subscenario_count
-            system.scenario.total_steps = subscenario_count * len(system.dates)
+            system.scenario.total_steps = subscenario_count * len(system.timesteps)
 
             supersubscenarios = []
             scenario_key = {}
@@ -269,9 +268,7 @@ def run_scenarios(args, networklog):
 
 @app.task
 def run_scenario(supersubscenario, args, verbose=False):
-    print("RUNNING SCENARIO: {}".format(print(supersubscenario)))
-
-    global current_step, total_steps
+    print("[*] Running scenario {}".format(supersubscenario['id']))
 
     # Check OA to see if the model request is still valid
     sid = supersubscenario.get('sid')
@@ -285,7 +282,8 @@ def run_scenario(supersubscenario, args, verbose=False):
     post_reporter = PostReporter(args) if args.post_url else None
     reporter = None
     if args.message_protocol is None:
-        reporter = ScreenReporter(args)
+        # reporter = ScreenReporter(args)
+        reporter = None
     elif args.message_protocol == 'post':
         post_reporter.is_main_reporter = True
         reporter = post_reporter
@@ -316,40 +314,24 @@ def run_scenario(supersubscenario, args, verbose=False):
 
 
 def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, verbose=False):
-    global current_step, total_steps
-
-    debug = args.debug
 
     sid = supersubscenario.get('sid')
-
-    # initialize with scenario
-    # current_dates = system.dates[0:foresight_periods]
 
     # intialize
     system.initialize(supersubscenario)
 
-    # 1. UPDATE INITIAL CONDITIONS
-    # TODO: delete this once the irregular time step routine of Pywr is implemented
-
     total_steps = len(system.dates)
+    original_now = now = datetime.now()
+    tqdm_timesteps = tqdm(system.timesteps, leave=False, ncols=80, disable=not args.debug)
 
-    runs = range(system.nruns)
-    n = len(runs)
-
-    i = 0
-    now = datetime.now()
-
-    while i < n:
+    for timestep in tqdm_timesteps:
 
         if local_redis and local_redis.get(sid) == ProcessState.CANCELED:
             print("Canceled by user.")
             raise Ignore
 
-        ts = runs[i]
-        current_step = i + 1
-
-        # if verbose:
-        #     print('current step: %s' % current_step)
+        ts = timestep.timestep
+        i = ts - 1
 
         #######################
         # CORE SCENARIO ROUTINE
@@ -358,11 +340,10 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         # 1. Update timesteps
 
         # TODO: update time step scheme based on https://github.com/pywr/pywr/issues/688
-        current_dates = system.dates[ts:ts + system.foresight_periods]
-        current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
-        step = (system.dates[ts] - system.dates[ts - 1]).days if ts else system.dates[0].day
+        current_dates_as_string = system.dates_as_string[i:i + system.foresight_periods]
 
         if system.scenario.time_step != 'day':
+            step = system.dates[i + 1] - system.dates[i].days
             system.model.update_timesteps(
                 start=current_dates_as_string[0],
                 end=current_dates_as_string[-1],
@@ -396,7 +377,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             system.scenario.current_date = current_dates_as_string[0]
 
             new_now = datetime.now()
-            should_report_progress = ts == 0 or current_step == n or (new_now - now).seconds >= 2
+            should_report_progress = ts == 0 or ts == total_steps or (new_now - now).seconds >= 2
             # system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
 
             if system.scenario.reporter and should_report_progress:
@@ -408,9 +389,9 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             saved = system.save_logs()
             system.save_results(error=True)
             msg = 'ERROR: Something went wrong at step {timestep} of {total} ({date}):\n\n{err}'.format(
-                timestep=current_step,
+                timestep=timestep.timestep,
                 total=total_steps,
-                date=current_dates[0].date(),
+                date=timestep.date_as_string,
                 err=err
             )
             if saved:
@@ -421,16 +402,15 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             raise Exception(msg)
 
-        if ts == runs[-1]:
-            system.finish()
-            reporter and reporter.report(action='done')
+    tqdm_timesteps.close()
 
-            print('finished')
+    if args.debug:
+        print('[*] Finished in {} seconds'.format(
+            (datetime.now() - original_now).seconds
+        ))
 
-        i += 1
+    system.finish()
+    reporter and reporter.report(action='done')
 
-        # yield
+    print('[*] Finished scenario')
 
-    # POSTPROCESSING HERE (IF ANY)
-
-    # reporter.done(current_step, total_steps
