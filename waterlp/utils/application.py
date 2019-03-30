@@ -23,8 +23,9 @@ def message_handler(message):
     action = data.get('action')
     sid = data.get('sid')
     if sid and action == 'cancel':
-        local_redis.set(sid, ProcessState.CANCELED)
-        local_redis.expire(sid, 3600 * 24)
+        if local_redis:
+            local_redis.set(sid, ProcessState.CANCELED)
+            local_redis.expire(sid, 3600 * 24)
 
 
 class PNSubscribeCallback(SubscribeCallback):

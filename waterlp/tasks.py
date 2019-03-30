@@ -169,7 +169,7 @@ def run_scenarios(args, networklog):
         sid = '-'.join([args.unique_id] + [str(s) for s in set(scenario_ids)])
 
         try:
-            if local_redis.get(sid) == ProcessState.CANCELED:
+            if local_redis and local_redis.get(sid) == ProcessState.CANCELED:
                 print('Canceled by user')
                 raise Ignore
         except Exception as err:
@@ -263,7 +263,7 @@ def run_scenarios(args, networklog):
             run_scenario(ss, args=args, verbose=verbose)
     else:
         for ss in all_supersubscenarios:
-            run_scenario.apply_async((ss, args, verbose), serializer='pickle', compression='gzip')
+            result = run_scenario.apply_async((ss, args, verbose), serializer='pickle', compression='gzip')
     return
 
 
@@ -275,7 +275,7 @@ def run_scenario(supersubscenario, args, verbose=False):
 
     # Check OA to see if the model request is still valid
     sid = supersubscenario.get('sid')
-    if local_redis.get(sid) == ProcessState.CANCELED:
+    if local_redis and local_redis.get(sid) == ProcessState.CANCELED:
         print("Canceled by user.")
         raise Ignore
 
@@ -341,7 +341,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
     while i < n:
 
-        if local_redis.get(sid) == ProcessState.CANCELED:
+        if local_redis and local_redis.get(sid) == ProcessState.CANCELED:
             print("Canceled by user.")
             raise Ignore
 

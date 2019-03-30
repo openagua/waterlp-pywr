@@ -9,7 +9,7 @@ queue_name = 'model-{}'.format(model_key)
 if run_key:
     queue_name += '-{}'.format(run_key)
 
-broker_url = 'amqp://{username}:{password}@{hostname}:5672/{vhost}'.format(
+broker_url = 'pyamqp://{username}:{password}@{hostname}:5672/{vhost}'.format(
     username=model_key,
     password=environ.get('RABBITMQ_PASSWORD', 'password'),
     hostname=environ.get('RABBITMQ_HOST', 'localhost'),
@@ -30,13 +30,9 @@ app.conf.update(
 
 def start_listening(concurrency=4):
     from waterlp.utils.application import PNSubscribeCallback
-    from waterlp.reporters.redis import local_redis as redis
 
     from pubnub.pnconfiguration import PNConfiguration
     from pubnub.pubnub import PubNub
-
-    # test redis
-    redis.set('test', 1)
 
     # app.config_from_object('waterlp.celeryconfig')
     app_dir = '/home/{}/.waterlp'.format(getpass.getuser())
