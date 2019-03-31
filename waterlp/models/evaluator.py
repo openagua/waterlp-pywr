@@ -968,6 +968,7 @@ class Evaluator:
             flavor = kwargs.pop('flavor', 'dataframe')
             fill_method = kwargs.pop('fill_method', None)
             interp_method = kwargs.pop('interp_method', None)
+            fit = kwargs.pop('fit', True)
 
             fullpath = '{}/{}'.format(self.files_path, path)
             path = 's3://{}/{}'.format(self.bucket_name, fullpath)
@@ -992,6 +993,8 @@ class Evaluator:
                     if interp_method in ['time', 'akima', 'quadratic']:
                         interp_args['method'] = interp_method
                     df.interpolate(inplace=True, **interp_args)
+            if fit and type(df.index) == pandas.DatetimeIndex:
+                df = df.reindex(self.dates, fill_value=None)
 
             if flavor == 'native':
                 data = df.to_dict()
