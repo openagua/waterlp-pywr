@@ -288,7 +288,7 @@ class Timestep(object):
             self.periodic_timestep = self.index % 36 + 1
 
 
-def make_timesteps(data_type='timeseries', debug_start=None, **kwargs):
+def make_timesteps(data_type='timeseries', **kwargs):
     # TODO: Make this more advanced
 
     span = kwargs.get('span') or kwargs.get('timestep') or kwargs.get('time_step')
@@ -302,16 +302,12 @@ def make_timesteps(data_type='timeseries', debug_start=None, **kwargs):
         end_date = pandas.to_datetime(end)
         span = span.lower()
 
-        if debug_start:
-            start_date = max(start_date, pandas.to_datetime(debug_start))
-
         if data_type == 'periodic timeseries':
             start_date = pandas.datetime(9998, 1, 1)
             end_date = pandas.datetime(9998, 12, 31, 23, 59)
 
         if span == 'day':
-            date_range = pandas.date_range(start=start_date, end=end_date, freq='D')
-            timesteps = [Timestep(d, start_date, span) for d in date_range]
+            timesteps = [Timestep(d, start_date, span) for d in pandas.date_range(start=start, end=end, freq='D')]
         elif span == 'week':
             dates = []
             for i in range(52 * (end_date.year - start_date.year)):
@@ -329,7 +325,7 @@ def make_timesteps(data_type='timeseries', debug_start=None, **kwargs):
             timesteps = [Timestep(d, start_date, 'month') for d in pandas.date_range(start=start, end=end, freq='M')]
         elif span == 'thricemonthly':
             dates = []
-            for date in pandas.date_range(start=start_date, end=end_date, freq='M'):
+            for date in pandas.date_range(start=start, end=end, freq='M'):
                 d1 = pandas.datetime(date.year, date.month, 10)
                 d2 = pandas.datetime(date.year, date.month, 20)
                 d3 = pandas.datetime(date.year, date.month, date.daysinmonth)
@@ -381,9 +377,8 @@ class namespace:
 
 
 class Evaluator:
-    def __init__(self, conn=None, scenario_id=None,
-                 time_settings=None, data_type='timeseries', debug_ts=None, debug_start=None, nblocks=1,
-                 files_path=None, date_format='%Y-%m-%d %H:%M:%S', **kwargs):
+    def __init__(self, conn=None, scenario_id=None, data_type='timeseries', nblocks=1, files_path=None,
+                 time_settings=None, date_format='%Y-%m-%d %H:%M:%S', **kwargs):
         self.conn = conn
 
         self.dates = []
@@ -393,10 +388,13 @@ class Evaluator:
         self.end_date = None
 
         if data_type in [None, 'timeseries', 'periodic timeseries']:
-            timesteps = make_timesteps(data_type=data_type, debug_start=debug_start, **time_settings)
-            if debug_ts:
-                timesteps = timesteps[:debug_ts]
-            self.timesteps = timesteps
+            self.timesteps = make_timesteps(data_type=data_type, **time_settings)
+            debug_start = kwargs.pop('debug_start', None)
+            debug_ts = kwargs.pop('debug_ts', None)
+            if debug_start:
+                debug_start = pandas.Timestamp(debug_start)
+                self.timesteps = [t for t in self.timesteps if t.date >= debug_start]
+            self.timesteps = self.timesteps[:debug_ts]
             self.dates = [t.date for t in self.timesteps]
             self.dates_as_string = [t.date_as_string for t in self.timesteps]
             self.start_date = self.dates[0].date
