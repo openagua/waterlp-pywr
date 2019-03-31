@@ -33,7 +33,7 @@ class Object(object):
 @app.task(name='openagua.run')
 def run(**kwargs):
 
-    print(' [x] Task initiated')
+    print('[*] Task initiated')
 
     """This is for starting the model with Celery"""
     env = kwargs.get('env', {})

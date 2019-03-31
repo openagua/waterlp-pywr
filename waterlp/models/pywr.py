@@ -295,8 +295,7 @@ class PywrModel(object):
             elif attr_name == 'base value':
                 self.non_storage[res_idx].base_cost = negative(value)
             elif attr_name == 'turbine capacity':
-                # self.non_storage[res_idx].turbine_capacity = value
-                pass
+                self.non_storage[res_idx].turbine_capacity = value
             elif attr_name == 'excess value':
                 self.non_storage[res_idx].excess_cost = negative(value)
         elif attr_name == 'storage demand':
