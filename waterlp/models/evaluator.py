@@ -410,6 +410,7 @@ class Evaluator:
         self.default_timeseries = None
         self.default_array = make_default_value('array')
         self.resource_scenarios = {}
+
         self.external = {}
 
         self.bucket_name = environ.get('AWS_S3_BUCKET')
@@ -900,8 +901,7 @@ class Evaluator:
                         if key == parentkey:
                             result = self.store.get(key, {}).get(offset_date_as_string)
                             if result is None:
-                                raise Exception(
-                                    "No result found for this variable for date {}".format(offset_date_as_string))
+                                raise Exception("No result found for this variable for date {}".format(offset_date_as_string))
 
                         else:
                             if flavor == 'pandas':
