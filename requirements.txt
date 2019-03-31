@@ -54,6 +54,7 @@ scipy==1.2.0
 six==1.11.0
 tables==3.4.4
 tornado==5.1.1
+tqdm==4.31.1
 txaio==2.8.2
 tzdata==1.2016.8
 tzlocal==1.5.1
