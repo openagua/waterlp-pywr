@@ -222,7 +222,7 @@ class WaterSystem(object):
             files_path = None
 
         self.evaluator = Evaluator(self.conn, time_settings=time_settings, files_path=files_path,
-                                   date_format=self.date_format, debug_ts=self.args.debug_ts,
+                                   date_format=self.date_format, debug_ts=self.args.debug and self.args.debug_ts,
                                    debug_start=self.args.debug_start)
 
         self.timesteps = self.evaluator.timesteps
