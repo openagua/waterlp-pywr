@@ -83,7 +83,7 @@ class PywrModel(object):
             #         values = list(variable['values'].values())
             #         pywr_param = ArrayIndexedParameter(model, values)
 
-            if pywr_param:
+            if pywr_param is not None:
                 type_name = type_name.lower()
                 attr_name = attr_name.lower()
                 (resource_type, resource_id, attr_id) = res_attr_idx
