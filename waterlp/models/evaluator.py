@@ -7,12 +7,8 @@ from copy import copy
 from calendar import isleap
 import pandas
 import numpy
-from pandas import Timestamp
 import boto3
 from io import BytesIO
-from datetime import datetime
-
-from ast import literal_eval
 
 # for use within user functions
 from math import log, isnan
