@@ -410,6 +410,7 @@ class Evaluator:
         self.default_timeseries = None
         self.default_array = make_default_value('array')
         self.resource_scenarios = {}
+
         self.external = {}
 
         self.bucket_name = environ.get('AWS_S3_BUCKET')
