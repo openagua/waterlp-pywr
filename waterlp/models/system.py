@@ -303,7 +303,7 @@ class WaterSystem(object):
             source = self.scenario.source_scenarios[source_id]
 
             print("[*] Collecting data for {}".format(source['name']))
-            tqdm_data = tqdm(source.resourcescenarios, leave=False, ncols=80, disable=not self.args.debug)
+            tqdm_data = tqdm(source.resourcescenarios, leave=False, ncols=80, disable=not self.args.verbose)
             for rs in tqdm_data:
                 cnt += 1
                 if rs.resource_attr_id not in self.res_tattrs:
@@ -965,7 +965,7 @@ class WaterSystem(object):
             n = 0
             N = len(self.store)
             # for key, value in self.store.items():
-            for key in tqdm(self.store, leave=False, ncols=80, disable=not self.args.debug):
+            for key in tqdm(self.store, leave=False, ncols=80, disable=not self.args.verbose):
 
                 value = self.store[key]
                 n += 1

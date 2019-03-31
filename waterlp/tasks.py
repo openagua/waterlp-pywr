@@ -322,7 +322,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
     total_steps = len(system.dates)
     original_now = now = datetime.now()
-    tqdm_timesteps = tqdm(system.timesteps, leave=False, ncols=80, disable=not args.debug)
+    tqdm_timesteps = tqdm(system.timesteps, leave=False, ncols=80, disable=not args.verbose)
 
     for timestep in tqdm_timesteps:
 
