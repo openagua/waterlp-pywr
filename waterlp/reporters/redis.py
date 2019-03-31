@@ -6,5 +6,5 @@ local_redis = redis.Redis(host=os.environ.get('REDIS_HOST', 'localhost'), port=6
 try:
     local_redis.get('test')
 except:
-    print(' [x] WARNING: Redis not available.')
+    print('[x] WARNING: Redis not available.')
     local_redis = None

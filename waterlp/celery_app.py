@@ -9,6 +9,7 @@ queue_name = 'model-{}'.format(model_key)
 if run_key:
     queue_name += '-{}'.format(run_key)
 
+# librabbitmq does not handle pickle content; pyamqp makes sure that librabbitmq isn't used if installed
 broker_url = 'pyamqp://{username}:{password}@{hostname}:5672/{vhost}'.format(
     username=model_key,
     password=environ.get('RABBITMQ_PASSWORD', 'password'),

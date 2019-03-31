@@ -33,7 +33,7 @@ class Object(object):
 @app.task(name='openagua.run')
 def run(**kwargs):
 
-    print(' [x] Task initiated')
+    print('[*] Task initiated')
 
     """This is for starting the model with Celery"""
     env = kwargs.get('env', {})
@@ -199,14 +199,14 @@ def run_scenarios(args, networklog):
             if args.debug:
                 verbose = True
                 system.nruns = min(args.debug_ts, system.nruns)
-                system.timesteps = system.timesteps[:system.nruns]
                 system.dates = system.dates[:system.nruns]
                 system.dates_as_string = system.dates_as_string[:system.nruns]
 
-                subscenario_count = min(subscenario_count, args.debug_s)
+                if args.debug_s:
+                    subscenario_count = min(subscenario_count, args.debug_s)
 
             system.scenario.subscenario_count = subscenario_count
-            system.scenario.total_steps = subscenario_count * len(system.timesteps)
+            system.scenario.total_steps = subscenario_count * len(system.dates)
 
             supersubscenarios = []
             scenario_key = {}
@@ -256,7 +256,7 @@ def run_scenarios(args, networklog):
     # run the scenario
     # ================
 
-    if args.debug:
+    if args.debug or args.sync_mode == 'sync':
         networklog.info("Running scenario in debug mode")
         for ss in all_supersubscenarios[:args.debug_s]:
             run_scenario(ss, args=args, verbose=verbose)
@@ -321,17 +321,20 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     system.initialize(supersubscenario)
 
     total_steps = len(system.dates)
-    original_now = now = datetime.now()
-    tqdm_timesteps = tqdm(system.timesteps, leave=False, ncols=80, disable=not args.verbose)
 
-    for timestep in tqdm_timesteps:
+    now = datetime.now()
+
+    for timestep in tqdm(system.timesteps, leave=False, ncols=80, disable=not args.verbose):
 
         if local_redis and local_redis.get(sid) == ProcessState.CANCELED:
             print("Canceled by user.")
             raise Ignore
 
-        ts = timestep.timestep
-        i = ts - 1
+        current_step = timestep.timestep
+        i = current_step - 1
+
+        # if verbose:
+        #     print('current step: %s' % current_step)
 
         #######################
         # CORE SCENARIO ROUTINE
@@ -340,10 +343,11 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         # 1. Update timesteps
 
         # TODO: update time step scheme based on https://github.com/pywr/pywr/issues/688
+        current_dates = system.dates[i:i + system.foresight_periods]
         current_dates_as_string = system.dates_as_string[i:i + system.foresight_periods]
 
         if system.scenario.time_step != 'day':
-            step = system.dates[i + 1] - system.dates[i].days
+            step = (system.dates[i] - system.dates[i - 1]).days if i else system.dates[0].day
             system.model.update_timesteps(
                 start=current_dates_as_string[0],
                 end=current_dates_as_string[-1],
@@ -354,8 +358,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             # 2. UPDATE BOUNDARY CONDITIONS
 
-            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='pre-process')
-            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='main')
+            system.update_boundary_conditions(i, i + system.foresight_periods, step='pre-process')
+            system.update_boundary_conditions(i, i + system.foresight_periods, step='main')
 
             # 3. RUN THE MODEL ONE TIME STEP
 
@@ -370,15 +374,15 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
 
             # 5. CALCULATE POST-PROCESSED RESULTS
-            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='post-process')
+            system.update_boundary_conditions(i, i + system.foresight_periods, step='post-process')
 
             # 6. REPORT PROGRESS
             system.scenario.finished += 1
             system.scenario.current_date = current_dates_as_string[0]
 
             new_now = datetime.now()
-            should_report_progress = ts == 0 or ts == total_steps or (new_now - now).seconds >= 2
-            # system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
+            should_report_progress = i == 0 or current_step == total_steps or (new_now - now).seconds >= 2
+            # system.dates[i].month != system.dates[i - 1].month and (new_now - now).seconds >= 1
 
             if system.scenario.reporter and should_report_progress:
                 system.scenario.reporter.report(action='step')
@@ -389,9 +393,9 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             saved = system.save_logs()
             system.save_results(error=True)
             msg = 'ERROR: Something went wrong at step {timestep} of {total} ({date}):\n\n{err}'.format(
-                timestep=timestep.timestep,
+                timestep=current_step,
                 total=total_steps,
-                date=timestep.date_as_string,
+                date=current_dates[0].date(),
                 err=err
             )
             if saved:
@@ -402,15 +406,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             raise Exception(msg)
 
-    tqdm_timesteps.close()
-
-    if args.debug:
-        print('[*] Finished in {} seconds'.format(
-            (datetime.now() - original_now).seconds
-        ))
-
     system.finish()
     reporter and reporter.report(action='done')
 
-    print('[*] Finished scenario')
+    print('finished')
 

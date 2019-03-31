@@ -52,10 +52,12 @@ def commandline_parser():
                         help='''Message protocol to report progress back to client browser''')
     parser.add_argument('--guid', default=uuid.uuid4().hex, dest='unique_id',
                         help='''Unique identifier for this run.''')
+    parser.add_argument('--sm', dest='sync_mode', default='async', help='''Whether to run as sync or async. For async, Celery must be set up properly.''')
+    parser.add_argument('--v', dest='verbose', action='store_true', help='''Verbose output, generally paired with debug.''')
     parser.add_argument('--debug', dest='debug', action='store_true', help='''Debug flag.''')
     parser.add_argument('--debug_ts', dest='debug_ts', type=int, default=10,
                         help='''The number of timesteps to run in debug mode.''')
-    parser.add_argument('--debug_s', dest='debug_s', type=int, default=2,
+    parser.add_argument('--debug_s', dest='debug_s', type=int, default=None,
                         help='''The number of scenarios to run in debug mode.''')
     parser.add_argument('--debug_gain', dest='debug_gain', action='store_true',
                         help='''Debug flag for the Pyomo model.''')

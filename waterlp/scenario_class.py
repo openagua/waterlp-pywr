@@ -150,7 +150,7 @@ class Scenario(object):
         else:
             self.destination = 's3'
 
-        self.version_date = args.starttime.strftime('%Y-%M-%d %H:%M:%S')
+        self.version_date = args.starttime.strftime('%Y-%m-%d %H:%M:%S')
 
         # update the result scenario
         versions = result_scenario['layout'].get('versions', [])

@@ -11,8 +11,8 @@ from waterlp.models.evaluator import Evaluator
 from waterlp.utils.converter import convert
 
 INITIAL_STORAGE_ATTRS = [
-    ('Reservoir', 'Initial Storage'),
-    ('Groundwater', 'Initial Storage')
+    ('reservoir', 'Initial Storage'),
+    ('groundwater', 'Initial Storage')
 ]
 
 
@@ -95,7 +95,6 @@ class WaterSystem(object):
         self.date_format = date_format
         self.storage_scale = 1
         self.storage_unit = 'hm^3'
-        # self.initial_volumes = {}  # assume these are only for nodes
 
         self.scenarios = {s.name: s for s in all_scenarios}
         self.scenarios_by_id = {s.id: s for s in all_scenarios}
@@ -108,9 +107,10 @@ class WaterSystem(object):
         self.ttypes = {}
         self.res_tattrs = {}
 
+        self.initial_volumes = {}
         self.constants = {}  # fixed (scalars, arrays, etc.)
+        self.descriptors = {}
         self.variables = {}  # variable (time series)
-        self.initial_conditions = {}
         # self.block_params = ['Storage Demand', 'Demand', 'Priority']
         self.block_params = []
         self.blocks = {'node': {}, 'link': {}, 'network': {}}
@@ -120,6 +120,8 @@ class WaterSystem(object):
         self.params = {}  # to be defined later
         self.nparams = 0
         self.nvars = 0
+
+        self.attrs_to_save = []
 
         self.log_dir = 'log/{run_name}'.format(run_name=self.args.run_name)
 
@@ -155,13 +157,15 @@ class WaterSystem(object):
 
             tattrs = {ta.attr_id: ta for ta in ttypeattrs[(resource_type, rt['name'])]}
 
-            res_tattrs = list(tattrs.keys())
-
             # general resource attribute information
             for ra in resource.attributes:
-                if ra.attr_id not in res_tattrs:
+                if ra.attr_id not in tattrs:
                     continue
-                self.res_tattrs[ra.id] = tattrs[ra.attr_id]
+                tattr = tattrs[ra.attr_id]
+                self.res_tattrs[ra.id] = tattr
+
+                if tattr.is_var == 'Y' and tattr.properties.get('save', False):
+                    self.attrs_to_save.append((resource_type, resource.id, tattr['attr_id']))
 
                 if ra.attr_is_var == 'N' and not args.suppress_input:
                     self.nparams += 1
@@ -175,7 +179,7 @@ class WaterSystem(object):
             get_resource_attributes(link, 'link')
 
         # initialize dictionary of parameters
-        self.scalars = {feature_type: {} for feature_type in ['node', 'link', 'net']}
+        # self.scalars = {feature_type: {} for feature_type in ['node', 'link', 'net']}
 
         self.ra_node = {ra.id: node.id for node in network.nodes for ra in node.attributes}  # res_attr to node lookup
         self.ra_link = {ra.id: link.id for link in network.links for ra in link.attributes}  # res_attr to link lookup
@@ -221,7 +225,7 @@ class WaterSystem(object):
             files_path = None
 
         self.evaluator = Evaluator(self.conn, time_settings=time_settings, files_path=files_path,
-                                   date_format=self.date_format, debug_ts=self.args.debug_ts,
+                                   date_format=self.date_format, debug_ts=self.args.debug and self.args.debug_ts,
                                    debug_start=self.args.debug_start)
 
         self.timesteps = self.evaluator.timesteps
@@ -267,6 +271,7 @@ class WaterSystem(object):
         N = len(self.dates)
 
         # collect source data
+        # Importantly, this routine overwrites parent scenario data with child scenario data
         for source_id in self.scenario.source_ids:
 
             self.evaluator.scenario_id = source_id
@@ -303,8 +308,7 @@ class WaterSystem(object):
             source = self.scenario.source_scenarios[source_id]
 
             print("[*] Collecting data for {}".format(source['name']))
-            tqdm_data = tqdm(source.resourcescenarios, leave=False, ncols=80, disable=not self.args.verbose)
-            for rs in tqdm_data:
+            for rs in tqdm(source.resourcescenarios, ncols=80, disable=not self.args.verbose):
                 cnt += 1
                 if rs.resource_attr_id not in self.res_tattrs:
                     continue  # this is for a different resource type
@@ -321,7 +325,7 @@ class WaterSystem(object):
                     resource_id = self.network.id
                 res_idx = (resource_type, resource_id)
 
-                key = '{}/{}/{}'.format(resource_type, resource_id, rs.attr_id)
+                # key = '{}/{}/{}'.format(resource_type, resource_id, rs.attr_id)
 
                 try:
 
@@ -341,12 +345,6 @@ class WaterSystem(object):
 
                     # store the resource scenario value for future lookup
                     # self.evaluator.resource_scenarios[key] = rs.value
-
-                    # if self.args.debug:
-                    #     tqdm_data.set_description('{} {}'.format(
-                    #         tattr['attr_name'],
-                    #         self.resources[(resource_type, resource_id)]['name']
-                    #     ))
 
                     intermediary = tattr['properties'].get('intermediary', False)
                     # attr_name = tattr['att']
@@ -415,19 +413,16 @@ class WaterSystem(object):
                         except:
                             raise Exception("Could not convert scalar")
 
-                        self.constants[res_attr_idx] = value
-                        # if (type_name, tattr['attr_name']) in INITIAL_STORAGE_ATTRS:
-                        #     # self.initial_volumes[res_attr_idx] = value
-                        #     self.constants[res_attr_idx] = value
-                        #
-                        # else:
-                        #     self.constants[res_attr_idx] = value
+                        if (type_name.lower(), tattr['attr_name']) in INITIAL_STORAGE_ATTRS:
+                            self.initial_volumes[res_attr_idx] = value
+                        else:
+                            self.constants[res_attr_idx] = value
 
                     elif type(value) in [int, float]:
                         self.constants[res_attr_idx] = value
 
                     elif data_type == 'descriptor':  # this could change later
-                        self.constants[res_attr_idx] = value
+                        self.descriptors[res_attr_idx] = value
 
                     elif data_type == 'timeseries':
                         values = value
@@ -508,10 +503,11 @@ class WaterSystem(object):
             step = step
 
         # set up initial values
+        initial_volumes = {}
         constants = {}
         variables = {}
 
-        def convert_values(source, dest):
+        def convert_values(source, dest, dest_key='res_attr_idx'):
             for res_attr_idx in list(source):
                 resource_type, resource_id, attr_id = res_attr_idx
                 type_name = self.resources[(resource_type, resource_id)]['type']['name']
@@ -526,9 +522,13 @@ class WaterSystem(object):
                     val = convert(value * scale, dimension, unit, 'hm^3')
                 else:
                     val = value
-                dest[res_attr_idx] = val
+                if dest_key == 'res_attr_idx':
+                    dest[res_attr_idx] = val
+                elif dest_key == 'resource_id':
+                    dest[resource_id] = val
 
         convert_values(self.constants, constants)
+        convert_values(self.initial_volumes, initial_volumes, dest_key='resource_id')
 
         # for res_attr_idx in list(self.variables):
         #     if self.variables[res_attr_idx].get('is_ready'):
@@ -540,7 +540,9 @@ class WaterSystem(object):
             start=start,
             end=end,
             step=step,
-            constants=constants
+            initial_volumes=initial_volumes,
+            constants=constants,
+            variables=variables
         )
 
     def prepare_params(self):
@@ -620,9 +622,9 @@ class WaterSystem(object):
                 # at this point, timeseries have not been assigned to variables, so these are mutually exclusive
                 # the order here shouldn't matter
                 res_attr_idx = (resource_type, resource_id, attr_id)
-                variable = self.constants.get(res_attr_idx)
+                constant = self.constants.get(res_attr_idx)
                 timeseries = self.variables.get(res_attr_idx)
-                if variable:
+                if constant:
                     self.constants[res_attr_idx] = perturb(self.constants[res_attr_idx], variation)
 
                 elif timeseries:
@@ -634,6 +636,8 @@ class WaterSystem(object):
                     data_type = tattr['data_type']
                     if data_type == 'scalar':
                         self.constants[res_attr_idx] = perturb(0, variation)
+                    elif data_type == 'descriptor':
+                        self.descriptors[res_attr_idx] = perturb(0, variation)
                     elif data_type == 'timeseries':
 
                         self.variables[res_attr_idx] = {
@@ -796,53 +800,45 @@ class WaterSystem(object):
                     scope='model'
                 )
 
-    def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
+    def collect_results(self, timesteps, tsidx=None, include_all=False, suppress_input=False):
 
-        # loop through all the model parameters and variables
-        for (resource_type, resource_id), node in self.model.non_storage.items():
-            self.store_results(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                attr_name='inflow',
-                timestamp=timesteps[0],
-                value=node.flow[0],
-            )
+        for (resource_type, resource_id, attr_id) in self.attrs_to_save:
+            res_idx = (resource_type, resource_id)
+            storage = self.model.storage.get(resource_id)
+            non_storage = not storage and self.model.non_storage.get(res_idx)
 
-            self.store_results(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                attr_name='outflow',
-                timestamp=timesteps[0],
-                value=node.flow[0],
-            )
+            if storage or non_storage:
 
-        for resource_id, node in self.model.storage.items():
-            self.store_results(
-                resource_type='node',
-                resource_id=resource_id,
-                attr_name='storage',
-                timestamp=timesteps[0],
-                value=node.volume[0],
-            )
-            self.store_results(
-                resource_type='node',
-                resource_id=resource_id,
-                attr_name='outflow',
-                timestamp=timesteps[0],
-                value=sum([input.flow[0] for input in node.inputs]),  # "input" means "input to the system"
-            )
-            self.store_results(
-                resource_type='node',
-                resource_id=resource_id,
-                attr_name='inflow',
-                timestamp=timesteps[0],
-                value=sum([output.flow[0] for output in node.outputs]),
-            )
+                resource_class = 'storage' if storage else 'non_storage'
+                tattr = self.conn.tattrs[(resource_type, resource_id, attr_id)]
+                attr_name = tattr['attr_name'].lower()
 
-    def store_results(self, resource_type=None, resource_id=None, attr_name=None, timestamp=None, value=None):
+                idx = (resource_class, attr_name)
+
+                value = None
+                if idx == ('non_storage', 'outflow'):
+                    value = non_storage.flow[0]
+                elif idx == ('storage', 'outflow'):
+                    value = sum([i.flow[0] for i in storage.inputs])
+                elif idx == ('storage', 'inflow'):
+                    value = sum([o.flow[0] for o in storage.outputs])
+                elif idx == ('storage', 'storage'):
+                    value = storage.volume[0]
+
+                if value is None:
+                    continue # The attribute isn't obtainable yet?
+
+                self.store_results(
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    attr_id=attr_id,
+                    timestamp=timesteps[0],
+                    value=value
+                )
+
+    def store_results(self, resource_type=None, resource_id=None, attr_id=None, timestamp=None, value=None):
 
         type_name = self.resources[(resource_type, resource_id)]['type']['name']
-        attr_id = self.conn.attr_id_lookup.get((resource_type, resource_id, attr_name))
         if not attr_id:
             return  # this is not an actual attribute in the model
         tattr_idx = (resource_type, type_name, attr_id)
@@ -1002,7 +998,7 @@ class WaterSystem(object):
                     else:
                         value = str(value)
                 except:
-                    print('Failed to prepare: {}'.format(attr_name))
+                    # print('Failed to prepare: {}'.format(attr_name))
                     continue
 
                 # if self.args.debug:
@@ -1118,7 +1114,7 @@ class WaterSystem(object):
             pcount = 1
             nparams = len(self.store)
             path = base_path + '/{resource_type}/{resource_subtype}/{resource_id}/{attr_id}.csv'
-            for res_attr_idx in tqdm(self.store, ncols=80, leave=False):
+            for res_attr_idx in tqdm(self.store, ncols=80, leave=False, disable=not self.args.verbose):
                 resource_type, resource_id, attr_id = res_attr_idx.split('/')
                 resource_id = int(resource_id)
                 attr_id = int(attr_id)
