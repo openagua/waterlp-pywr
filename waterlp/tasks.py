@@ -322,20 +322,16 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
     total_steps = len(system.dates)
 
-    runs = range(system.nruns)
-    n = len(runs)
-
-    i = 0
     now = datetime.now()
 
-    for run in tqdm(runs, leave=False, ncols=80):
+    for timestep in tqdm(system.timesteps, leave=False, ncols=80, disable=not args.verbose):
 
         if local_redis and local_redis.get(sid) == ProcessState.CANCELED:
             print("Canceled by user.")
             raise Ignore
 
-        ts = runs[i]
-        current_step = i + 1
+        current_step = timestep.timestep
+        i = current_step - 1
 
         # if verbose:
         #     print('current step: %s' % current_step)
@@ -347,11 +343,11 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         # 1. Update timesteps
 
         # TODO: update time step scheme based on https://github.com/pywr/pywr/issues/688
-        current_dates = system.dates[ts:ts + system.foresight_periods]
-        current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
-        step = (system.dates[ts] - system.dates[ts - 1]).days if ts else system.dates[0].day
+        current_dates = system.dates[i:i + system.foresight_periods]
+        current_dates_as_string = system.dates_as_string[i:i + system.foresight_periods]
 
         if system.scenario.time_step != 'day':
+            step = (system.dates[i] - system.dates[i - 1]).days if i else system.dates[0].day
             system.model.update_timesteps(
                 start=current_dates_as_string[0],
                 end=current_dates_as_string[-1],
@@ -362,8 +358,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             # 2. UPDATE BOUNDARY CONDITIONS
 
-            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='pre-process')
-            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='main')
+            system.update_boundary_conditions(i, i + system.foresight_periods, step='pre-process')
+            system.update_boundary_conditions(i, i + system.foresight_periods, step='main')
 
             # 3. RUN THE MODEL ONE TIME STEP
 
@@ -378,15 +374,15 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             system.collect_results(current_dates_as_string, tsidx=i, suppress_input=args.suppress_input)
 
             # 5. CALCULATE POST-PROCESSED RESULTS
-            system.update_boundary_conditions(ts, ts + system.foresight_periods, step='post-process')
+            system.update_boundary_conditions(i, i + system.foresight_periods, step='post-process')
 
             # 6. REPORT PROGRESS
             system.scenario.finished += 1
             system.scenario.current_date = current_dates_as_string[0]
 
             new_now = datetime.now()
-            should_report_progress = ts == 0 or current_step == n or (new_now - now).seconds >= 2
-            # system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
+            should_report_progress = i == 0 or current_step == total_steps or (new_now - now).seconds >= 2
+            # system.dates[i].month != system.dates[i - 1].month and (new_now - now).seconds >= 1
 
             if system.scenario.reporter and should_report_progress:
                 system.scenario.reporter.report(action='step')
@@ -410,11 +406,8 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             raise Exception(msg)
 
-        if ts == runs[-1]:
-            system.finish()
-            reporter and reporter.report(action='done')
+    system.finish()
+    reporter and reporter.report(action='done')
 
-            print('finished')
-
-        i += 1
+    print('finished')
 
