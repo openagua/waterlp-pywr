@@ -40,7 +40,7 @@ def negative(value):
 # create the model
 class PywrModel(object):
     def __init__(self, network, template, start=None, end=None, step=None,
-                 constants=None, variables=None,
+                 constants=None, variables=None, initial_volumes=None,
                  check_graph=False):
 
         self.model = None
@@ -48,7 +48,7 @@ class PywrModel(object):
         self.non_storage = {}
         self.updated = {}  # dictionary for debugging whether or not a param has been updated
 
-        self.create_model(network, template, constants=constants, variables=variables)
+        self.create_model(network, template, constants=constants, variables=variables, initial_volumes=initial_volumes)
 
         # check network graph
         if check_graph:
@@ -59,7 +59,7 @@ class PywrModel(object):
 
         self.setup(start=start, end=end, step=step)
 
-    def create_model(self, network, template, constants=None, variables=None):
+    def create_model(self, network, template, constants=None, variables=None, initial_volumes=None):
 
         model = Model(solver='glpk-edge')
 
@@ -72,12 +72,25 @@ class PywrModel(object):
         non_storage_types = list(output_types.keys()) + list(input_types.keys()) + list(node_types.keys())
 
         def add_value_to_node(res_attr_idx, type_name, attr_name):
-            value = constants.pop(res_attr_idx, None)
-            if value:
+            pywr_param = None
+            constant = constants.pop(res_attr_idx, None)
+            if constant:
+                # pywr_param = ConstantParameter(model, constant)
+                pywr_param = constant
+            # elif variables:
+            #     variable = variables.pop(res_attr_idx, None)
+            #     if variable:
+            #         values = list(variable['values'].values())
+            #         pywr_param = ArrayIndexedParameter(model, values)
+
+            if pywr_param:
                 type_name = type_name.lower()
                 attr_name = attr_name.lower()
                 (resource_type, resource_id, attr_id) = res_attr_idx
-                self.update_param(resource_type, resource_id, type_name, attr_name, value=value)
+                try:
+                    self.update_param(resource_type, resource_id, type_name, attr_name, value=pywr_param)
+                except:
+                    raise
 
         # create node dictionaries by name and id
         node_lookup = {}
@@ -175,13 +188,13 @@ class PywrModel(object):
             connect_in = node.get('connect_in', 0)
             connect_out = node.get('connect_out', 0)
             if (type_name in storage_types or connect_out > 1) and type_name not in non_storage_types:
-                # initial_volume = initial_volumes.get(node_id, 0.0) if initial_volumes is not None else 0.0
+                initial_volume = initial_volumes.get(node_id, 0.0) if initial_volumes is not None else 0.0
                 self.storage[node_id] = Storage(
                     model,
                     name=name,
                     num_outputs=connect_in,
                     num_inputs=connect_out,
-                    # initial_volume=initial_volume
+                    initial_volume=initial_volume
                 )
                 if type_name not in storage_types:
                     self.storage[node_id].max_volume = 0.0
@@ -258,19 +271,14 @@ class PywrModel(object):
     def update_param(self, resource_type, resource_id, type_name, attr_name, value):
 
         res_idx = (resource_type, resource_id)
-        attr_idx = (resource_type, resource_id, attr_name)
-
-        # if attr_idx in self.updated:
-        #     return
-
-        # self.updated[attr_idx] = True
+        # attr_idx = (resource_type, resource_id, attr_name)
 
         ta = (type_name.lower(), attr_name.lower())
 
         if ta == ('catchment', 'runoff'):
             self.non_storage[res_idx].flow = value
-        elif ta == ('reservoir', 'initial storage'):
-            self.storage[resource_id].initial_volume = value
+        # elif ta == ('reservoir', 'initial storage'):
+        #     self.storage[resource_id].initial_volume = value
         elif 'demand' in type_name:
             if attr_name == 'value':
                 self.non_storage[res_idx].cost = negative(value)
@@ -287,7 +295,8 @@ class PywrModel(object):
             elif attr_name == 'base value':
                 self.non_storage[res_idx].base_cost = negative(value)
             elif attr_name == 'turbine capacity':
-                self.non_storage[res_idx].turbine_capacity = value
+                # self.non_storage[res_idx].turbine_capacity = value
+                pass
             elif attr_name == 'excess value':
                 self.non_storage[res_idx].excess_cost = negative(value)
         elif attr_name == 'storage demand':

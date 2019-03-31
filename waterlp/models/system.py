@@ -108,9 +108,10 @@ class WaterSystem(object):
         self.ttypes = {}
         self.res_tattrs = {}
 
+        self.initial_volumes = {}
         self.constants = {}  # fixed (scalars, arrays, etc.)
+        self.descriptors = {}
         self.variables = {}  # variable (time series)
-        self.initial_conditions = {}
         # self.block_params = ['Storage Demand', 'Demand', 'Priority']
         self.block_params = []
         self.blocks = {'node': {}, 'link': {}, 'network': {}}
@@ -175,7 +176,7 @@ class WaterSystem(object):
             get_resource_attributes(link, 'link')
 
         # initialize dictionary of parameters
-        self.scalars = {feature_type: {} for feature_type in ['node', 'link', 'net']}
+        # self.scalars = {feature_type: {} for feature_type in ['node', 'link', 'net']}
 
         self.ra_node = {ra.id: node.id for node in network.nodes for ra in node.attributes}  # res_attr to node lookup
         self.ra_link = {ra.id: link.id for link in network.links for ra in link.attributes}  # res_attr to link lookup
@@ -267,6 +268,7 @@ class WaterSystem(object):
         N = len(self.dates)
 
         # collect source data
+        # Importantly, this routine overwrites parent scenario data with child scenario data
         for source_id in self.scenario.source_ids:
 
             self.evaluator.scenario_id = source_id
@@ -321,7 +323,7 @@ class WaterSystem(object):
                     resource_id = self.network.id
                 res_idx = (resource_type, resource_id)
 
-                key = '{}/{}/{}'.format(resource_type, resource_id, rs.attr_id)
+                # key = '{}/{}/{}'.format(resource_type, resource_id, rs.attr_id)
 
                 try:
 
@@ -415,19 +417,16 @@ class WaterSystem(object):
                         except:
                             raise Exception("Could not convert scalar")
 
-                        self.constants[res_attr_idx] = value
-                        # if (type_name, tattr['attr_name']) in INITIAL_STORAGE_ATTRS:
-                        #     # self.initial_volumes[res_attr_idx] = value
-                        #     self.constants[res_attr_idx] = value
-                        #
-                        # else:
-                        #     self.constants[res_attr_idx] = value
+                        if (type_name, tattr['attr_name']) in INITIAL_STORAGE_ATTRS:
+                            self.initial_volumes[res_attr_idx] = value
+                        else:
+                            self.constants[res_attr_idx] = value
 
                     elif type(value) in [int, float]:
                         self.constants[res_attr_idx] = value
 
                     elif data_type == 'descriptor':  # this could change later
-                        self.constants[res_attr_idx] = value
+                        self.descriptors[res_attr_idx] = value
 
                     elif data_type == 'timeseries':
                         values = value
@@ -508,6 +507,7 @@ class WaterSystem(object):
             step = step
 
         # set up initial values
+        initial_volumes = {}
         constants = {}
         variables = {}
 
@@ -529,10 +529,11 @@ class WaterSystem(object):
                 dest[res_attr_idx] = val
 
         convert_values(self.constants, constants)
+        convert_values(self.initial_volumes, initial_volumes)
 
-        # for res_attr_idx in list(self.variables):
-        #     if self.variables[res_attr_idx].get('is_ready'):
-        #         variables[res_attr_idx] = self.variables.pop(res_attr_idx)
+        for res_attr_idx in list(self.variables):
+            if self.variables[res_attr_idx].get('is_ready'):
+                variables[res_attr_idx] = self.variables.pop(res_attr_idx)
 
         self.model = PywrModel(
             network=self.network,
@@ -540,7 +541,9 @@ class WaterSystem(object):
             start=start,
             end=end,
             step=step,
-            constants=constants
+            initial_volumes=initial_volumes,
+            constants=constants,
+            variables=variables
         )
 
     def prepare_params(self):
@@ -620,9 +623,9 @@ class WaterSystem(object):
                 # at this point, timeseries have not been assigned to variables, so these are mutually exclusive
                 # the order here shouldn't matter
                 res_attr_idx = (resource_type, resource_id, attr_id)
-                variable = self.constants.get(res_attr_idx)
+                constant = self.constants.get(res_attr_idx)
                 timeseries = self.variables.get(res_attr_idx)
-                if variable:
+                if constant:
                     self.constants[res_attr_idx] = perturb(self.constants[res_attr_idx], variation)
 
                 elif timeseries:
@@ -634,6 +637,8 @@ class WaterSystem(object):
                     data_type = tattr['data_type']
                     if data_type == 'scalar':
                         self.constants[res_attr_idx] = perturb(0, variation)
+                    elif data_type == 'descriptor':
+                        self.descriptors[res_attr_idx] = perturb(0, variation)
                     elif data_type == 'timeseries':
 
                         self.variables[res_attr_idx] = {
