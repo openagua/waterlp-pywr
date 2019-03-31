@@ -1,5 +1,3 @@
-from math import isinf
-
 from pywr.nodes import Domain, PiecewiseLink
 from pywr.parameters import load_parameter
 
@@ -118,7 +116,7 @@ class Hydropower(RiverDomainMixin, PiecewiseLink):
                 return min(self.sublinks[1].max_flow, self.sublinks[0].max_flow)
 
         def fset(self, value):
-            if isinf(self.sublinks[1].max_flow):
+            if self.sublinks[1].max_flow is None:
                 self.sublinks[0].max_flow = value
             else:
                 if self.sublinks[0].max_flow is None:

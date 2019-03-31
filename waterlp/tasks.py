@@ -199,14 +199,13 @@ def run_scenarios(args, networklog):
             if args.debug:
                 verbose = True
                 system.nruns = min(args.debug_ts, system.nruns)
-                system.timesteps = system.timesteps[:system.nruns]
                 system.dates = system.dates[:system.nruns]
                 system.dates_as_string = system.dates_as_string[:system.nruns]
 
                 subscenario_count = min(subscenario_count, args.debug_s)
 
             system.scenario.subscenario_count = subscenario_count
-            system.scenario.total_steps = subscenario_count * len(system.timesteps)
+            system.scenario.total_steps = subscenario_count * len(system.dates)
 
             supersubscenarios = []
             scenario_key = {}
@@ -256,7 +255,7 @@ def run_scenarios(args, networklog):
     # run the scenario
     # ================
 
-    if args.debug:
+    if args.debug or args.sync_mode == 'sync':
         networklog.info("Running scenario in debug mode")
         for ss in all_supersubscenarios[:args.debug_s]:
             run_scenario(ss, args=args, verbose=verbose)
@@ -321,17 +320,24 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
     system.initialize(supersubscenario)
 
     total_steps = len(system.dates)
-    original_now = now = datetime.now()
-    tqdm_timesteps = tqdm(system.timesteps, leave=False, ncols=80, disable=not args.debug)
 
-    for timestep in tqdm_timesteps:
+    runs = range(system.nruns)
+    n = len(runs)
+
+    i = 0
+    now = datetime.now()
+
+    for run in tqdm(runs, leave=False, ncols=80):
 
         if local_redis and local_redis.get(sid) == ProcessState.CANCELED:
             print("Canceled by user.")
             raise Ignore
 
-        ts = timestep.timestep
-        i = ts - 1
+        ts = runs[i]
+        current_step = i + 1
+
+        # if verbose:
+        #     print('current step: %s' % current_step)
 
         #######################
         # CORE SCENARIO ROUTINE
@@ -340,10 +346,11 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
         # 1. Update timesteps
 
         # TODO: update time step scheme based on https://github.com/pywr/pywr/issues/688
-        current_dates_as_string = system.dates_as_string[i:i + system.foresight_periods]
+        current_dates = system.dates[ts:ts + system.foresight_periods]
+        current_dates_as_string = system.dates_as_string[ts:ts + system.foresight_periods]
+        step = (system.dates[ts] - system.dates[ts - 1]).days if ts else system.dates[0].day
 
         if system.scenario.time_step != 'day':
-            step = system.dates[i + 1] - system.dates[i].days
             system.model.update_timesteps(
                 start=current_dates_as_string[0],
                 end=current_dates_as_string[-1],
@@ -377,7 +384,7 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             system.scenario.current_date = current_dates_as_string[0]
 
             new_now = datetime.now()
-            should_report_progress = ts == 0 or ts == total_steps or (new_now - now).seconds >= 2
+            should_report_progress = ts == 0 or current_step == n or (new_now - now).seconds >= 2
             # system.dates[ts].month != system.dates[ts - 1].month and (new_now - now).seconds >= 1
 
             if system.scenario.reporter and should_report_progress:
@@ -389,9 +396,9 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
             saved = system.save_logs()
             system.save_results(error=True)
             msg = 'ERROR: Something went wrong at step {timestep} of {total} ({date}):\n\n{err}'.format(
-                timestep=timestep.timestep,
+                timestep=current_step,
                 total=total_steps,
-                date=timestep.date_as_string,
+                date=current_dates[0].date(),
                 err=err
             )
             if saved:
@@ -402,15 +409,11 @@ def _run_scenario(system=None, args=None, supersubscenario=None, reporter=None, 
 
             raise Exception(msg)
 
-    tqdm_timesteps.close()
+        if ts == runs[-1]:
+            system.finish()
+            reporter and reporter.report(action='done')
 
-    if args.debug:
-        print('[*] Finished in {} seconds'.format(
-            (datetime.now() - original_now).seconds
-        ))
+            print('finished')
 
-    system.finish()
-    reporter and reporter.report(action='done')
-
-    print('[*] Finished scenario')
+        i += 1
 

@@ -308,7 +308,7 @@ class WaterSystem(object):
             source = self.scenario.source_scenarios[source_id]
 
             print("[*] Collecting data for {}".format(source['name']))
-            tqdm_data = tqdm(source.resourcescenarios, ncols=80, disable=not self.args.debug)
+            tqdm_data = tqdm(source.resourcescenarios, ncols=80)
             for rs in tqdm_data:
                 cnt += 1
                 if rs.resource_attr_id not in self.res_tattrs:
@@ -346,12 +346,6 @@ class WaterSystem(object):
 
                     # store the resource scenario value for future lookup
                     # self.evaluator.resource_scenarios[key] = rs.value
-
-                    # if self.args.debug:
-                    #     tqdm_data.set_description('{} {}'.format(
-                    #         tattr['attr_name'],
-                    #         self.resources[(resource_type, resource_id)]['name']
-                    #     ))
 
                     intermediary = tattr['properties'].get('intermediary', False)
                     # attr_name = tattr['att']
@@ -807,7 +801,7 @@ class WaterSystem(object):
                     scope='model'
                 )
 
-    def collect_results(self, timesteps, tsidx, include_all=False, suppress_input=False):
+    def collect_results(self, timesteps, tsidx=None, include_all=False, suppress_input=False):
 
         for (resource_type, resource_id, attr_id) in self.attrs_to_save:
             res_idx = (resource_type, resource_id)
@@ -968,7 +962,7 @@ class WaterSystem(object):
             n = 0
             N = len(self.store)
             # for key, value in self.store.items():
-            for key in tqdm(self.store, leave=False, ncols=80, disable=not self.args.debug):
+            for key in tqdm(self.store, leave=False, ncols=80):
 
                 value = self.store[key]
                 n += 1
@@ -1005,7 +999,7 @@ class WaterSystem(object):
                     else:
                         value = str(value)
                 except:
-                    print('Failed to prepare: {}'.format(attr_name))
+                    # print('Failed to prepare: {}'.format(attr_name))
                     continue
 
                 # if self.args.debug:
@@ -1121,7 +1115,7 @@ class WaterSystem(object):
             pcount = 1
             nparams = len(self.store)
             path = base_path + '/{resource_type}/{resource_subtype}/{resource_id}/{attr_id}.csv'
-            for res_attr_idx in tqdm(self.store, ncols=80, leave=False, disable=not self.args.debug):
+            for res_attr_idx in tqdm(self.store, ncols=80, leave=False):
                 resource_type, resource_id, attr_id = res_attr_idx.split('/')
                 resource_id = int(resource_id)
                 attr_id = int(attr_id)
