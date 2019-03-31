@@ -202,7 +202,8 @@ def run_scenarios(args, networklog):
                 system.dates = system.dates[:system.nruns]
                 system.dates_as_string = system.dates_as_string[:system.nruns]
 
-                subscenario_count = min(subscenario_count, args.debug_s)
+                if args.debug_s:
+                    subscenario_count = min(subscenario_count, args.debug_s)
 
             system.scenario.subscenario_count = subscenario_count
             system.scenario.total_steps = subscenario_count * len(system.dates)

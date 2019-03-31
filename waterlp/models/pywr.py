@@ -275,39 +275,45 @@ class PywrModel(object):
 
         ta = (type_name.lower(), attr_name.lower())
 
-        if ta == ('catchment', 'runoff'):
-            self.non_storage[res_idx].flow = value
-        # elif ta == ('reservoir', 'initial storage'):
-        #     self.storage[resource_id].initial_volume = value
-        elif 'demand' in type_name:
-            if attr_name == 'value':
-                self.non_storage[res_idx].cost = negative(value)
-            elif attr_name == 'demand':
+        try:
+
+            if ta == ('catchment', 'runoff'):
+                self.non_storage[res_idx].flow = value
+            # elif ta == ('reservoir', 'initial storage'):
+            #     self.storage[resource_id].initial_volume = value
+            elif 'demand' in type_name:
+                if attr_name == 'value':
+                    self.non_storage[res_idx].cost = negative(value)
+                elif attr_name == 'demand':
+                    self.non_storage[res_idx].max_flow = value
+            elif type_name == 'flow requirement':
+                if attr_name == 'requirement':
+                    self.non_storage[res_idx].mrf = value
+                elif attr_name == 'violation cost':
+                    self.non_storage[res_idx].mrf_cost = negative(value)
+            if type_name == 'hydropower':
+                if attr_name == 'water demand':
+                    self.non_storage[res_idx].base_flow = value
+                elif attr_name == 'base value':
+                    self.non_storage[res_idx].base_cost = negative(value)
+                elif attr_name == 'turbine capacity':
+                    self.non_storage[res_idx].turbine_capacity = value
+                elif attr_name == 'excess value':
+                    self.non_storage[res_idx].excess_cost = negative(value)
+            elif attr_name == 'storage demand':
+                self.storage[resource_id].max_volume = value
+            elif attr_name == 'storage value':
+                self.storage[resource_id].cost = negative(value)
+            elif attr_name == 'storage capacity':
+                self.storage[resource_id].max_volume = value
+            elif attr_name == 'inactive pool':
+                self.storage[resource_id].min_volume = value
+            elif attr_name == 'flow capacity':
                 self.non_storage[res_idx].max_flow = value
-        elif type_name == 'flow requirement':
-            if attr_name == 'requirement':
-                self.non_storage[res_idx].mrf = value
-            elif attr_name == 'violation cost':
-                self.non_storage[res_idx].mrf_cost = negative(value)
-        if type_name == 'hydropower':
-            if attr_name == 'water demand':
-                self.non_storage[res_idx].base_flow = value
-            elif attr_name == 'base value':
-                self.non_storage[res_idx].base_cost = negative(value)
-            elif attr_name == 'turbine capacity':
-                self.non_storage[res_idx].turbine_capacity = value
-            elif attr_name == 'excess value':
-                self.non_storage[res_idx].excess_cost = negative(value)
-        elif attr_name == 'storage demand':
-            self.storage[resource_id].max_volume = value
-        elif attr_name == 'storage value':
-            self.storage[resource_id].cost = negative(value)
-        elif attr_name == 'storage capacity':
-            self.storage[resource_id].max_volume = value
-        elif attr_name == 'inactive pool':
-            self.storage[resource_id].min_volume = value
-        elif attr_name == 'flow capacity':
-            self.non_storage[res_idx].max_flow = value
+
+        except Exception as err:
+            msg = 'Failed to prepare Pywr data for {} {}'.format(type_name, attr_name)
+            raise Exception(msg)
 
         return
 
