@@ -224,8 +224,9 @@ class WaterSystem(object):
         else:
             files_path = None
 
+        debug_ts = self.args.debug_ts if self.args.debug else None
         self.evaluator = Evaluator(self.conn, time_settings=time_settings, files_path=files_path,
-                                   date_format=self.date_format, debug_ts=self.args.debug_ts,
+                                   date_format=self.date_format, debug_ts=debug_ts,
                                    debug_start=self.args.debug_start)
 
         self.timesteps = self.evaluator.timesteps
