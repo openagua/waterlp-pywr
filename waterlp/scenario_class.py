@@ -180,6 +180,13 @@ class Scenario(object):
                 scenario=result_scenario.name if args.human_readable else result_scenario.id,
                 date=self.version_date,
             )
+        elif self.destination == 'local':
+            self.base_path = '{folder}/.results/{run}/{date}/{scenario}'.format(
+                folder=self.storage.folder,
+                run=self.run_name,
+                scenario=result_scenario.name if args.human_readable else result_scenario.id,
+                date=self.version_date,
+            )
 
         self.result_scenario = result_scenario
 

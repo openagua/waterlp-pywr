@@ -1,4 +1,5 @@
 import os
+import shutil
 import json
 from attrdict import AttrDict
 import pandas as pd
@@ -945,9 +946,9 @@ class WaterSystem(object):
         if self.scenario.destination == 'source':
             self.save_results_to_source()
         elif self.scenario.destination == 's3':
-            self.save_results_to_s3()
-        else:
-            self.save_results_to_local()
+            self.save_results_to_csv('s3')
+        elif self.scenario.destination == 'local':
+            self.save_results_to_csv('local')
 
     def save_results_to_source(self):
 
@@ -1072,16 +1073,20 @@ class WaterSystem(object):
                 self.scenario.reporter.report(action='error', message=msg)
             raise
 
-    def save_results_to_s3(self):
-        # TODO: parallelize this (via queue?)
-        s3 = boto3.client('s3')
+    def save_results_to_csv(self, dest):
+
+        s3 = None
+        if dest == 's3':
+            s3 = boto3.client('s3')
+
+        human_readable = self.args.human_readable
 
         if len(self.scenario.base_ids) == 1:
             o = s = self.scenario.base_ids[0]
         else:
             o, s = self.scenario.base_ids
 
-        if self.args.human_readable:
+        if human_readable:
             variation_name = '{{:0{}}}' \
                 .format(len(str(self.scenario.subscenario_count))) \
                 .format(self.metadata['number'])
@@ -1101,6 +1106,12 @@ class WaterSystem(object):
             variation=variation_name
         )
 
+        if dest == 'local':
+            home_folder = os.getenv('HOME')
+            base_path = os.path.join(home_folder, '.openagua', base_path)
+            if not os.path.exists(base_path):
+                os.makedirs(base_path)
+
         # save variable data to database
         res_scens = []
         res_names = {}
@@ -1108,13 +1119,19 @@ class WaterSystem(object):
         try:
 
             # write metadata
-            content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': ')).encode()
-            s3.put_object(Body=content, Bucket=self.bucket_name, Key=base_path + '/metadata.json')
+            content = json.dumps(self.metadata, sort_keys=True, indent=4, separators=(',', ': '))
+
+            if dest == 's3':
+                s3.put_object(Body=content.encode(), Bucket=self.bucket_name, Key=base_path + '/metadata.json')
+            elif dest == 'local':
+                file_path = os.path.join(base_path, 'metadata.json')
+                with open(file_path, 'w') as outfile:
+                    json.dump(self.metadata, outfile, sort_keys=True, indent=4, separators=(',', ': '))
 
             count = 1
             pcount = 1
             nparams = len(self.store)
-            path = base_path + '/{resource_type}/{resource_subtype}/{resource_id}/{attr_id}.csv'
+            path = base_path + '/{resource_type}/{resource_subtype}/{resource_id}'
             for res_attr_idx in tqdm(self.store, ncols=80, leave=False, disable=not self.args.verbose):
                 resource_type, resource_id, attr_id = res_attr_idx.split('/')
                 resource_id = int(resource_id)
@@ -1143,112 +1160,37 @@ class WaterSystem(object):
                         value = df.to_csv()
                     else:
                         value = str(value)
-                    content = value.encode()
+                    content = value
                 except:
                     print('Failed to prepare: {}'.format(attr_name))
                     continue
 
                 if content:
                     ttype = self.conn.types.get((resource_type, resource_id))
-                    if self.args.human_readable:
+                    if human_readable:
                         resource_name = self.conn.raid_to_res_name[res_attr_id]
                         key = path.format(
                             resource_type=resource_type,
                             resource_subtype=ttype['name'],
                             resource_id=resource_name,
-                            attr_id=attr_name
                         )
                     else:
                         key = path.format(
                             resource_type=resource_type,
                             resource_subtype=ttype['id'],
                             resource_id=resource_id,
-                            attr_id=attr_id,
                         )
-                    s3.put_object(Body=content, Bucket=self.bucket_name, Key=key)
 
-                if count % 10 == 0 or pcount == nparams:
-                    if self.scenario.reporter:
-                        self.scenario.reporter.report(action='save',
-                                                      saved=round(count / (self.nparams + self.nvars) * 100))
-                count += 1
-
-        except:
-            msg = 'ERROR: Results could not be saved.'
-            # self.logd.info(msg)
-            if self.scenario.reporter:
-                self.scenario.reporter.report(action='error', message=msg)
-            raise
-
-    #
-    def save_results_to_local(self):
-
-        if len(self.scenario.base_ids) == 1:
-            o = s = self.scenario.base_ids[0]
-        else:
-            o, s = self.scenario.base_ids
-        base_path = './results/P{project}/N{network}/{scenario}/{run}/V{subscenario:05}'.format(
-            project=self.network.project_id,
-            network=self.network.id,
-            run=self.args.start_time,
-            scenario='O{}-S{}'.format(o, s),
-            subscenario=self.metadata['number'])
-
-        if not os.path.exists(base_path):
-            os.makedirs(base_path)
-
-        res_names = {
-            'node': {n.id: n.name for n in self.network.nodes},
-            'link': {l.id: l.name for l in self.network.links}
-        }
-
-        try:
-
-            # write metadata
-            with open('{}/metadata.json'.format(base_path), 'w') as f:
-                json.dump(self.metadata, f, sort_keys=True, indent=4, separators=(',', ': '))
-
-            count = 1
-            pcount = 1
-            nparams = len(self.store)
-            path = base_path + '/data/{parameter}.csv'
-            results = {}
-            for key, values in self.store.items():
-                pcount += 1
-
-                resource_type, resource_id, attr_id = key.split('/')
-                resource_id = int(resource_id)
-                attr_id = int(attr_id)
-
-                tattr = self.conn.tattrs.get((resource_type, resource_id, attr_id))
-                if not tattr:
-                    # Same as previous issue.
-                    # This is because the model assigns all resource attribute possibilities to all resources of like type
-                    # In practice this shouldn't make a difference, but may result in a model larger than desired
-                    # TODO: correct this
-                    continue
-
-                type_name = self.resources[(resource_type, resource_id)]['type']['name']
-                attr_name = tattr['attr_name']
-                tattr_idx = (resource_type, type_name, attr_name)
-
-                if tattr_idx not in self.params:
-                    continue  # it's probably an internal variable/parameter
-
-                res_name = res_names.get(resource_type, {}).get(resource_id) or self.network.name
-                try:
-                    data = pd.DataFrame.from_dict(values, orient='index', columns=[res_name])
-                    if tattr_idx not in results:
-                        results[tattr_idx] = data
+                    filename = '{attr_id}.csv'.format(attr_id = attr_name if human_readable else attr_id)
+                    if dest == 's3':
+                        key = os.path.join(key, filename)
+                        s3.put_object(Body=content.encode(), Bucket=self.bucket_name, Key=key)
                     else:
-                        results[tattr_idx] = pd.concat([results[tattr_idx], data], axis=1, sort=True)
-                except:
-                    continue
-
-            for (resource_type, type_name, attr_name), data in results.items():
-
-                if not data.empty:
-                    data.to_csv('{}/{}.csv'.format(base_path, attr_name))
+                        file_path = os.path.join(base_path, key)
+                        if not os.path.exists(file_path):
+                            os.makedirs(file_path)
+                        with open(os.path.join(file_path, filename), 'wb') as outfile:
+                            outfile.write(content.encode())
 
                 if count % 10 == 0 or pcount == nparams:
                     if self.scenario.reporter:
