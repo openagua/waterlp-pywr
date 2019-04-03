@@ -158,7 +158,7 @@ class Scenario(object):
             'number': len(versions) + 1,
             'date': self.version_date,
             'variations': self.variation_count,
-            'human_readable': not args.human_readable
+            'human_readable': args.human_readable
         })
         result_scenario['layout'].update({
             'data_location': self.destination,
