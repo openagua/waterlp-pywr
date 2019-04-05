@@ -13,8 +13,6 @@ from celery.exceptions import Ignore
 
 from waterlp.reporters.redis import local_redis
 from waterlp.reporters.post import Reporter as PostReporter
-from waterlp.reporters.ably import AblyReporter
-from waterlp.reporters.pubnub import PubNubReporter
 from waterlp.reporters.screen import ScreenReporter
 from waterlp.logger import RunLogger
 from waterlp.parser import commandline_parser
@@ -287,9 +285,14 @@ def run_scenario(supersubscenario, args, verbose=False):
     elif args.message_protocol == 'post':
         post_reporter.is_main_reporter = True
         reporter = post_reporter
+    elif args.message_protocol == 'socketio':
+        from waterlp.reporters.socketio import SocketIOReporter
+        reporter = SocketIOReporter(args, post_reporter=post_reporter)
     elif args.message_protocol == 'ably':
+        from waterlp.reporters.ably import AblyReporter
         reporter = AblyReporter(args, post_reporter=post_reporter)
     elif args.message_protocol == 'pubnub':
+        from waterlp.reporters.pubnub import PubNubReporter
         reporter = PubNubReporter(args, publish_key=args.publish_key, post_reporter=post_reporter)
     if reporter:
         reporter.updater = system.scenario.update_payload
