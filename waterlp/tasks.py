@@ -176,8 +176,7 @@ def run_scenarios(args, networklog):
 
         # create the scenario class
         scenario = Scenario(scenario_ids=scenario_ids, conn=conn, network=conn.network, template=conn.template,
-                            args=args,
-                            scenario_lookup=base_system.scenarios)
+                            args=args, scenario_lookup=base_system.scenarios)
 
         start_payload = scenario.update_payload(action='start')
         networklog.info(msg="Model started")
